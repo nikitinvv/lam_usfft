@@ -14,10 +14,19 @@ include_directories(${PYTHON_INCLUDE_PATH})
 # find_package(NumPy REQUIRED)
 # include_directories(${NumPy_INCLUDE_DIRS})
 
+
 # Must tell CMake that SWIG interface files are CXX files
-set_source_files_properties(fft.i PROPERTIES CPLUSPLUS ON)
-swig_add_library(fft LANGUAGE python SOURCES fft.i fft.cu)
-swig_link_libraries(fft cudart cufft)
-set_target_properties(fft PROPERTIES CUDA_ARCHITECTURES "60;72;75;80")
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/fft.py" DESTINATION ffttests)
-install(TARGETS fft LIBRARY DESTINATION ffttests)
+set_source_files_properties(usfft1d.i PROPERTIES CPLUSPLUS ON)
+swig_add_library(usfft1d LANGUAGE python SOURCES usfft1d.i usfft1d.cu)
+swig_link_libraries(usfft1d cudart cufft)
+set_target_properties(usfft1d PROPERTIES CUDA_ARCHITECTURES "60;72;75;80")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/usfft1d.py" DESTINATION ffttests)
+install(TARGETS usfft1d LIBRARY DESTINATION ffttests)
+
+# Must tell CMake that SWIG interface files are CXX files
+set_source_files_properties(usfft2d.i PROPERTIES CPLUSPLUS ON)
+swig_add_library(usfft2d LANGUAGE python SOURCES usfft2d.i usfft2d.cu)
+swig_link_libraries(usfft2d cudart cufft)
+set_target_properties(usfft2d PROPERTIES CUDA_ARCHITECTURES "60;72;75;80")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/usfft2d.py" DESTINATION ffttests)
+install(TARGETS usfft2d LIBRARY DESTINATION ffttests)

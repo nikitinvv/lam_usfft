@@ -2,10 +2,10 @@ import numpy as np
 from ffttests.fftcl import FFTCL
 import dxchange
 import time
-n0 = 200
-n1 = 100
-n2 = 150
-m = 4
+n0 = 16
+n1 = 20
+n2 = 36
+m = 5
 f = np.random.random([n0,n1,n2]).astype('complex64')
 f = np.ones([n0,n1,n2]).astype('complex64')
 fe = np.zeros([n0,2*n1,2*n2]).astype('complex64')
