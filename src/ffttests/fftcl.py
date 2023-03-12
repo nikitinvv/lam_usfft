@@ -178,14 +178,14 @@ class FFTCL():
 
         inp = u
         out = np.zeros([self.deth, self.n1, self.n2], dtype='complex64')
-        in_gpu = cp.zeros([self.n0, self.n1c, self.n2], dtype='complex64')
+        inp_gpu = cp.zeros([self.n0, self.n1c, self.n2], dtype='complex64')
         out_gpu = cp.zeros([self.deth, self.n1c, self.n2], dtype='complex64')
 
         ku = (cp.arange(-self.deth//2, self.deth//2) /
               self.deth*cp.sin(phi)).astype('float32')
         for k in range(self.n1//self.n1c):
-            in_gpu = cp.asarray(inp[:, k*self.n1c:(k+1)*self.n1c])
-            self.cl_usfft1d.fwd(out_gpu.data.ptr, in_gpu.data.ptr, ku.data.ptr)
+            inp_gpu = cp.array(inp[:, k*self.n1c:(k+1)*self.n1c])
+            self.cl_usfft1d.fwd(out_gpu.data.ptr, inp_gpu.data.ptr, ku.data.ptr)
             out[:, k*self.n1c:(k+1)*self.n1c] = out_gpu.get()
 
         # step 2: 2d batch usffts in [x,y] direction to the grid ku*cos(theta)+kv * sin(theta)*cos(phi)
@@ -193,7 +193,7 @@ class FFTCL():
 
         inp = out
         out = np.zeros([self.ntheta, self.deth, self.detw], dtype='complex64')
-        in_gpu = np.zeros([self.deth, self.n1, self.n2], dtype='complex64')
+        inp_gpu = np.zeros([self.deth, self.n1, self.n2], dtype='complex64')
         out_gpu = cp.zeros(
             [self.ntheta, self.dethc, self.detw], dtype='complex64')
 
@@ -203,7 +203,7 @@ class FFTCL():
         ku0 = (cp.arange(-self.deth//2, self.deth//2) /
                self.deth).astype('float32')
         for k in range(self.deth//self.dethc):
-            in_gpu = cp.array(inp[k*self.dethc:(k+1)*self.dethc])
+            inp_gpu = cp.array(inp[k*self.dethc:(k+1)*self.dethc])
             [ku, kv] = np.meshgrid(cp.arange(-self.detw//2, self.detw//2).astype('float32') /
                                    self.detw, ku0[k*self.dethc:(k+1)*self.dethc])
             for itheta in range(self.ntheta):
@@ -217,7 +217,7 @@ class FFTCL():
             y_gpu[y_gpu < -0.5] = -0.5 + 1e-5
 
             self.cl_usfft2d.fwd(
-                out_gpu.data.ptr, in_gpu.data.ptr, x_gpu.data.ptr, y_gpu.data.ptr)
+                out_gpu.data.ptr, inp_gpu.data.ptr, x_gpu.data.ptr, y_gpu.data.ptr)
             out[:, k*self.dethc:(k+1)*self.dethc] = out_gpu.get()
 
         # step3: 2d batch fft in [det x,det y] direction

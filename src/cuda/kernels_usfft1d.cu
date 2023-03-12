@@ -11,6 +11,7 @@ void __global__ divker1d(float2 *g, float2 *f, int n0, int n1, int n2, int m2,
   float ker = __expf(-mu2 * (tz - n2 / 2) * (tz - n2 / 2));
   int f_ind = tx + ty * n0 + tz * n0 * n1;
   int g_ind = tx + ty * n0 + (tz + n2 / 2 + m2) * n0 * n1;
+
   g[g_ind].x = f[f_ind].x / ker / (2 * n2);
   g[g_ind].y = f[f_ind].y / ker / (2 * n2);
 }

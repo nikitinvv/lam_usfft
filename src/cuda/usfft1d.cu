@@ -1,5 +1,6 @@
 #include "kernels_usfft1d.cu"
 #include "usfft1d.cuh"
+#include <stdio.h>
 #define EPS 1e-3
 
 usfft1d::usfft1d(size_t n0_, size_t n1_, size_t n2_, size_t deth_) {
@@ -24,7 +25,7 @@ usfft1d::usfft1d(size_t n0_, size_t n1_, size_t n2_, size_t deth_) {
 
   cudaMalloc((void **)&fdee1d, n1 * n0 * (2 * n2 + 2 * m2) * sizeof(float2));
   cufftPlanMany(&plan1dchunk, 1, ffts, inembed, istride, idist, inembed, istride, idist, CUFFT_C2C, n1 * n0);
-
+  
   BS1d = dim3(16, 16, 4);
   GS1d0 = dim3(ceil(n0 / (float)BS1d.x), ceil(n1 / (float)BS1d.y), ceil(n2 / (float)BS1d.z));
   GS1d1 = dim3(ceil(n0 / (float)BS1d.x), ceil(n1 / (float)BS1d.y), ceil((2 * n2 + 2 * m2) / (float)BS1d.z));
