@@ -1,4 +1,4 @@
-#include "kernels1d.cu"
+#include "kernels_usfft1d.cu"
 #include "usfft1d.cuh"
 #define EPS 1e-3
 

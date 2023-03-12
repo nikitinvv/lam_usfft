@@ -1,0 +1,43 @@
+#include "kernels_fft2d.cu"
+#include "fft2d.cuh"
+
+fft2d::fft2d(size_t ntheta_, size_t detw_, size_t deth_) {
+
+  ntheta = ntheta_;
+  detw = detw_;
+  deth = deth_;
+
+  int ffts[2];
+  int idist;
+  int inembed[2];
+
+  // fft2d 2d
+  ffts[0] = deth;
+  ffts[1] = detw;
+  idist = deth*detw;
+  inembed[0] = deth;
+  inembed[1] = detw;
+
+  cufftPlanMany(&plan2dchunk, 2, ffts, inembed, 1, idist, inembed, 1, idist, CUFFT_C2C, ntheta);
+
+  BS2d = dim3(32, 32, 1);
+  GS2d0 = dim3(ceil(detw / (float)BS2d.x), ceil(deth / (float)BS2d.y), ceil(ntheta / (float)BS2d.z));
+}
+
+// destructor, memory deallocation
+fft2d::~fft2d() { free(); }
+
+void fft2d::free() {
+  if (!is_free) {
+    cufftDestroy(plan2dchunk);
+    is_free = true;
+  }
+}
+
+void fft2d::adj(size_t f_) {
+
+  f = (float2 *)f_;
+  fftshiftc2d<<<GS2d0, BS2d>>>(f, detw, deth, ntheta);
+  cufftExecC2C(plan2dchunk, (cufftComplex *)f, (cufftComplex *)f, CUFFT_INVERSE);
+  fftshiftc2d<<<GS2d0, BS2d>>>(f, detw, deth, ntheta);  
+}

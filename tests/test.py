@@ -5,40 +5,32 @@ import time
 import matplotlib.pyplot as plt
 
 
-n0 = 16
-n1 = 10
-n2 = 6
-detw = 8
-deth = 16
+n0 = 256
+n1 = 256
+n2 = 256
+detw = 256
+deth = 128
 ntheta = 8
+
+n1c = n1//4
+dethc = deth//4
+nthetac = ntheta//4
 phi = np.pi/2-30/180*np.pi
 theta = np.linspace(0, 360, ntheta, endpoint=True).astype('float32')
-# f = -dxchange.read_tiff('delta-chip-256.tiff')+1j*0
-
-f = np.zeros([n0,n1,n2]).astype('complex64')
-f = np.random.random([n0,n1,n2])+1j*np.random.random([n0,n1,n2])
+f = -dxchange.read_tiff('delta-chip-256.tiff')+1j*0
+f = f[f.shape[0]//2-n0//2:f.shape[0]//2+n0//2, f.shape[1]//2-n1 //
+      2:f.shape[1]//2+n1//2, f.shape[2]//2-n2//2:f.shape[2]//2+n2//2]
+# f = np.zeros([n0,n1,n2]).astype('complex64')
+# f = np.random.random([n0,n1,n2])+1j*np.random.random([n0,n1,n2])
 
 f = f.astype('complex64')
-with FFTCL(n0, n1, n2, detw, deth, ntheta) as slv:
-    t= time.time()
-    data = slv.fwd_fft1d(f, phi)
-    print(time.time()-t)
-    t= time.time()
-    ddata = slv.fwd_fft2d(data, theta, phi)
-    print(time.time()-t)
-    
-    # data0 = np.fft.fftshift(np.fft.fft(np.fft.fftshift(f,axes=0),axis=0),axes=0).astype('complex64')
-    # print(np.linalg.norm(data))
-    # print(np.linalg.norm(data0))
-    # dxchange.write_tiff(data.real, 'data/r', overwrite=True)
-    # dxchange.write_tiff(data0.real, 'data/r0', overwrite=True)
-    # plt.subplot(1,2,1)
-    # plt.imshow(data[deth//2].real)
-    # plt.colorbar()
-    # plt.subplot(1,2,2)
-    # plt.imshow(data0[deth//2].real)
-    # plt.colorbar()
-    # plt.show()
-    
-    
-    # 
+with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
+
+    # data = slv.fwd_usfft1d(f, phi)
+    # ddata = slv.fwd_usfft2d(data, theta, phi)
+    # res = slv.adj_fft2d(ddata)
+    # dxchange.write_tiff(res.real,'res/data.tiff',overwrite=True)
+
+    res = slv.fwd_lam(f, theta, phi)
+    dxchange.write_tiff(res.real, 'res/data.tiff', overwrite=True)
+    print(np.linalg.norm(res))

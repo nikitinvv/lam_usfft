@@ -4,6 +4,7 @@ import cupy as cp
 import numpy as np
 from ffttests.usfft1d import usfft1d
 from ffttests.usfft2d import usfft2d
+from ffttests.fft2d import fft2d
 
 
 def eq2us1d(x, f, eps, N):
@@ -84,7 +85,7 @@ def eq2us2d(x, y, s, f, eps, N):
 
 
 class FFTCL():
-    def __init__(self, n0, n1, n2, detw, deth, ntheta):
+    def __init__(self, n0, n1, n2, detw, deth, ntheta, n1c=None, dethc=None, nthetac=None):
         self.n0 = n0
         self.n1 = n1
         self.n2 = n2
@@ -92,8 +93,25 @@ class FFTCL():
         self.deth = deth
         self.ntheta = ntheta
 
-        self.cl_usfft1d = usfft1d(n0, n1, n2, deth)
-        self.cl_usfft2d = usfft2d(n0, n1, n2, self.ntheta, detw, deth)
+        if n1c == None:
+            self.n1c = n1
+        else:
+            self.n1c = n1c
+
+        if dethc == None:
+            self.dethc = deth
+        else:
+            self.dethc = dethc
+
+        if nthetac == None:
+            self.nthetac = ntheta
+        else:
+            self.nthetac = nthetac
+
+        self.cl_usfft1d = usfft1d(self.n0, self.n1c, self.n2, self.deth)
+        self.cl_usfft2d = usfft2d(
+            self.dethc, self.n1, self.n2, self.ntheta, self.detw, self.dethc)  # n0 becomes deth
+        self.cl_fft2d = fft2d(self.nthetac, self.detw, self.deth)
 
     def __enter__(self):
         """Return self at start of a with-block."""
@@ -103,20 +121,20 @@ class FFTCL():
         """Free GPU memory due at interruptions or with-block exit."""
         self.cl_usfft1d.free()
         self.cl_usfft2d.free()
-        
 
-    def fwd_fft1d(self, u, phi):
+    def fwd_usfft1d(self, u, phi):
         res = cp.zeros([self.deth, self.n1, self.n2], dtype='complex64')
-        x = (cp.arange(-self.deth//2, self.deth//2) / self.deth*cp.sin(phi)).astype('float32')
+        x = (cp.arange(-self.deth//2, self.deth//2) /
+             self.deth*cp.sin(phi)).astype('float32')
         u_gpu = cp.array(u)
         self.cl_usfft1d.fwd(res.data.ptr, u_gpu.data.ptr, x.data.ptr)
-        ff = eq2us1d(x.get(), u, 1e-3, self.n0).astype('complex64')
-        print(f'norm ff :{np.linalg.norm(ff)}')
-        print(f'norm res: {np.linalg.norm(res.get())}')
-        print(f'error: {np.linalg.norm(ff-res.get())}')
+        # ff = eq2us1d(x.get(), u, 1e-3, self.n0).astype('complex64')
+        # print(f'norm ff :{np.linalg.norm(ff)}')
+        # print(f'norm res: {np.linalg.norm(res.get())}')
+        # print(f'error: {np.linalg.norm(ff-res.get())}')
         return res.get()
 
-    def fwd_fft2d(self, u, theta, phi):
+    def fwd_usfft2d(self, u, theta, phi):
         res = cp.zeros([self.ntheta, self.deth, self.detw], dtype='complex64')
         # res = cp.zeros([self.n0, (2*self.n1+2*4), (2*self.n2+2*4)], dtype='complex64')
 
@@ -140,10 +158,74 @@ class FFTCL():
         y[y < -0.5] = -0.5 + 1e-5
         self.cl_usfft2d.fwd(res.data.ptr, u_gpu.data.ptr,
                             x.data.ptr, y.data.ptr)
-        s = np.tile(np.arange(self.detw*self.deth)//self.detw, self.ntheta)
-        ff = eq2us2d(x.flatten().get(), y.flatten().get(), s, u, 1e-3,
-                     [self.n1, self.n2]).astype('complex64').reshape([self.ntheta, self.deth, self.detw])
-        print(f'norm ff :{np.linalg.norm(ff)}')
-        print(f'norm res: {np.linalg.norm(res.get())}')
-        print(f'error: {np.linalg.norm(ff-res.get())}')
+        # s = np.tile(np.arange(self.detw*self.deth)//self.detw, self.ntheta)
+        # ff = eq2us2d(x.flatten().get(), y.flatten().get(), s, u, 1e-3,
+        #              [self.n1, self.n2]).astype('complex64').reshape([self.ntheta, self.deth, self.detw])
+        # print(f'norm ff :{np.linalg.norm(ff)}')
+        # print(f'norm res: {np.linalg.norm(res.get())}')
+        # print(f'error: {np.linalg.norm(ff-res.get())}')
         return res.get()
+
+    def adj_fft2d(self, u):
+        u_gpu = cp.array(u)
+        self.cl_fft2d.adj(u_gpu.data.ptr)
+        return u_gpu.get()
+
+    def fwd_lam(self, u, theta, phi):
+
+        # step 1: 1d batch usffts in the z direction to the grid ku*sin(phi)
+        # input [self.n0, self.n1, self.n2], output [self.deth, self.n1, self.n2]
+
+        inp = u
+        out = np.zeros([self.deth, self.n1, self.n2], dtype='complex64')
+        in_gpu = cp.zeros([self.n0, self.n1c, self.n2], dtype='complex64')
+        out_gpu = cp.zeros([self.deth, self.n1c, self.n2], dtype='complex64')
+
+        ku = (cp.arange(-self.deth//2, self.deth//2) /
+              self.deth*cp.sin(phi)).astype('float32')
+        for k in range(self.n1//self.n1c):
+            in_gpu = cp.asarray(inp[:, k*self.n1c:(k+1)*self.n1c])
+            self.cl_usfft1d.fwd(out_gpu.data.ptr, in_gpu.data.ptr, ku.data.ptr)
+            out[:, k*self.n1c:(k+1)*self.n1c] = out_gpu.get()
+
+        # step 2: 2d batch usffts in [x,y] direction to the grid ku*cos(theta)+kv * sin(theta)*cos(phi)
+        # input [self.deth, self.n1, self.n2], output [self.ntheta, self.deth, self.detw]
+
+        inp = out
+        out = np.zeros([self.ntheta, self.deth, self.detw], dtype='complex64')
+        in_gpu = np.zeros([self.deth, self.n1, self.n2], dtype='complex64')
+        out_gpu = cp.zeros(
+            [self.ntheta, self.dethc, self.detw], dtype='complex64')
+
+        x_gpu = cp.zeros([self.ntheta, self.dethc, self.detw], dtype='float32')
+        y_gpu = cp.zeros([self.ntheta, self.dethc, self.detw], dtype='float32')
+
+        ku0 = (cp.arange(-self.deth//2, self.deth//2) /
+               self.deth).astype('float32')
+        for k in range(self.deth//self.dethc):
+            in_gpu = cp.array(inp[k*self.dethc:(k+1)*self.dethc])
+            [ku, kv] = np.meshgrid(cp.arange(-self.detw//2, self.detw//2).astype('float32') /
+                                   self.detw, ku0[k*self.dethc:(k+1)*self.dethc])
+            for itheta in range(self.ntheta):
+                x_gpu[itheta] = ku*cp.cos(theta[itheta])+kv * \
+                    cp.sin(theta[itheta])*cp.cos(phi)
+                y_gpu[itheta] = ku*np.sin(theta[itheta])-kv * \
+                    cp.cos(theta[itheta])*cp.cos(phi)
+            x_gpu[x_gpu >= 0.5] = 0.5 - 1e-5
+            x_gpu[x_gpu < -0.5] = -0.5 + 1e-5
+            y_gpu[y_gpu >= 0.5] = 0.5 - 1e-5
+            y_gpu[y_gpu < -0.5] = -0.5 + 1e-5
+
+            self.cl_usfft2d.fwd(
+                out_gpu.data.ptr, in_gpu.data.ptr, x_gpu.data.ptr, y_gpu.data.ptr)
+            out[:, k*self.dethc:(k+1)*self.dethc] = out_gpu.get()
+
+        # step3: 2d batch fft in [det x,det y] direction
+        # input [self.ntheta, self.deth, self.detw], output [self.ntheta, self.deth, self.detw]
+        # inp == out - reuse memory
+        for k in range(self.ntheta//self.nthetac):
+            out_gpu = cp.asarray(out[k*self.nthetac:(k+1)*self.nthetac])
+            self.cl_fft2d.adj(out_gpu.data.ptr)
+            out[k*self.nthetac:(k+1)*self.nthetac] = out_gpu.get()
+
+        return out
