@@ -4,6 +4,7 @@ from ffttests.usfft1d import *
 from ffttests.usfft2d import *
 from ffttests.fft2d import *
 from ffttests.fftcl import *
+from ffttests.utils import *
 try:
     __version__ = get_distribution(__name__).version
 except DistributionNotFound:
