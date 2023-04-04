@@ -11,9 +11,9 @@ detw = n
 deth = n
 ntheta = n
 
-n1c = n1//8
-dethc = deth//8
-nthetac = ntheta//8
+n1c = n1//4
+dethc = deth//4
+nthetac = ntheta//4
 phi = np.pi/2-30/180*np.pi
 theta = np.linspace(0, 2*np.pi, ntheta, endpoint=True).astype('float32')
 f = -dxchange.read_tiff('delta-chip-256.tiff')+1j*0

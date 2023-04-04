@@ -30,7 +30,7 @@ usfft2d::usfft2d(size_t n0_, size_t n1_, size_t n2_, size_t ntheta_, size_t detw
   cudaMalloc((void **)&fdee2d, n2 * (2 * n1 + 2 * m1) * (2 * n0 + 2 * m0) * sizeof(float2));
   cufftPlanMany(&plan2dchunk, 2, ffts, inembed, 1, idist, inembed, 1, idist, CUFFT_C2C, n2);
 
-  BS2d = dim3(32, 32, 1);
+  BS2d = dim3(16, 8, 8);
   GS2d0 = dim3(ceil(n0 / (float)BS2d.x), ceil(n1 / (float)BS2d.y), ceil(n2 / (float)BS2d.z));
   GS2d1 = dim3(ceil((2 * n0 + 2 * m0) / (float)BS2d.x), ceil((2 * n1 + 2 * m1) / (float)BS2d.y), ceil(n2 / (float)BS2d.z));
   GS2d2 = dim3(ceil(detw / (float)BS2d.x), ceil(deth / (float)BS2d.y), ceil(ntheta / (float)BS2d.z));
@@ -59,7 +59,5 @@ void usfft2d::fwd(size_t g_, size_t f_, size_t x_, size_t y_) {
   cufftExecC2C(plan2dchunk, (cufftComplex *)&fdee2d[m0 + m1 * (2 * n0 + 2 * m0)].x, (cufftComplex *)&fdee2d[m0 + m1 * (2 * n0 + 2 * m0)].x, CUFFT_FORWARD);
   fftshiftc2d<<<GS2d1, BS2d>>>(fdee2d, (2 * n0 + 2 * m0), (2 * n1 + 2 * m1), n2);
   wrap2d<<<GS2d1, BS2d>>>(fdee2d, n0, n1, n2, m0, m1);
-  gather2d<<<GS2d2, BS2d>>>(g, fdee2d, x, y, m0, m1, mu0, mu1, n0, n1, n2, detw, deth, ntheta);
-  // cudaMemcpy(g,fdee2d,n2 * (2 * n1 + 2 * m1)*(2 * n0 + 2 *
-  // m0)*8,cudaMemcpyDefault)
+  gather2d<<<GS2d2, BS2d>>>(g, fdee2d, x, y, m0, m1, mu0, mu1, n0, n1, n2, detw, deth, ntheta);  
 }

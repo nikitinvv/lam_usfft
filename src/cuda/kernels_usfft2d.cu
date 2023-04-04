@@ -55,7 +55,7 @@ void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
   if (tx >= detw || ty >= deth || tz >= ntheta)
     return;
 
-  int g_ind = tx + ty * detw + tz * detw * deth;
+  int g_ind = tx + tz * detw + ty * detw * ntheta;
 
   float x0 = x[g_ind];
   float y0 = y[g_ind];
