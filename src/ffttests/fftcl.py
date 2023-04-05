@@ -60,6 +60,7 @@ class FFTCL():
         self.ga2 = self.gb0[:2*self.n1*self.dethc*self.n2].reshape(2,self.n1,self.dethc,self.n2)
         self.ga3 = self.gb1[:2*self.dethc*self.ntheta*self.detw].reshape(2,self.dethc,self.ntheta,self.detw)
         self.ga4 = self.gb0[:2*self.nthetac*self.deth*self.detw].reshape(2,self.nthetac,self.deth,self.detw)
+        self.ga5 = self.gb1[:2*self.nthetac*self.deth*self.detw].reshape(2,self.nthetac,self.deth,self.detw)
 
         # streams for overlapping data transfers with computations
         self.stream1 = cp.cuda.Stream(non_blocking=False)
@@ -105,15 +106,23 @@ class FFTCL():
                 out_gpu[:,j].get(out=out[j,k*self.dethc:(k+1)*self.dethc])
             
     # @profile
-    def fwd_fft2_chunks(self, out, inp, inp_gpu):
-        for k in range(self.ntheta//self.nthetac):
-            inp_gpu.set(inp[k*self.nthetac:(k+1)*self.nthetac])# contiguous copy, fast
+    def fwd_fft2_chunks(self, out, inp, out_gpu, inp_gpu):
+        nchunk = self.ntheta//self.nthetac
+        for k in range(nchunk+2):
+            if(k > 0 and k < nchunk+1):
+                with self.stream2:
+                    self.cl_fft2d.adj(out_gpu[(k-1)%2].data.ptr,inp_gpu[(k-1)%2].data.ptr,self.stream2.ptr)
+            if(k > 1):
+                with self.stream3:  # gpu->cpu copy        
+                    out_gpu[(k-2)%2].get(out=out[(k-2)*self.nthetac:(k-1)*self.nthetac])# contiguous copy, fast                                        
+            if(k<nchunk):
+                with self.stream1:  # cpu->gpu copy
+                    inp_gpu[k%2].set(inp[k*self.nthetac:(k+1)*self.nthetac])# contiguous copy, fast
+                    
+            self.stream1.synchronize()
+            self.stream2.synchronize()
+            self.stream3.synchronize()
             
-            self.cl_fft2d.adj(inp_gpu.data.ptr)
-            cp.cuda.Device(0).synchronize()# for performance tests          
-            
-            inp_gpu.get(out=out[k*self.nthetac:(k+1)*self.nthetac])# contiguous copy, fast                    
-        
     # @profile    
     def fwd_lam(self, u, theta, phi):
         
@@ -129,7 +138,7 @@ class FFTCL():
         # step 3: 2d batch fft in [det x,det y] direction
         # input [self.ntheta, self.deth, self.detw], output [self.ntheta, self.deth, self.detw]        
         
-        self.fwd_fft2_chunks(self.pa3, self.pa2, self.ga4[0])
+        self.fwd_fft2_chunks(self.pa3, self.pa2, self.ga5, self.ga4)
     
         return self.pa3
 
