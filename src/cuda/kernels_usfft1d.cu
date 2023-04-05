@@ -10,8 +10,7 @@ void __global__ divker1d(float2 *g, float2 *f, int n0, int n1, int n2, int m2,
     return;
   float ker = __expf(-mu2 * (tz - n2 / 2) * (tz - n2 / 2));
   int f_ind = tx + tz * n0 + ty * n0 * n2;
-  int g_ind = tx + (tz + n2 / 2 + m2) * n0 + ty * n0 * (2*n2+2*m2);
-
+  int g_ind = tx + ty * n0 + (tz + n2 / 2 + m2) * n0 * n1;
   g[g_ind].x = f[f_ind].x / ker / (2 * n2);
   g[g_ind].y = f[f_ind].y / ker / (2 * n2);
 }
@@ -23,7 +22,7 @@ void __global__ fftshiftc1d(float2 *f, int n0, int n1, int n2) {
   if (tx >= n0 || ty >= n1 || tz >= n2)
     return;
   int g = (1 - 2 * ((tz + 1) % 2));
-  int f_ind = tx + tz * n0 + ty * n0 * n2;
+  int f_ind = tx + ty * n0 + tz * n0 * n1;
   f[f_ind].x *= g;
   f[f_ind].y *= g;
 }
@@ -36,13 +35,12 @@ void __global__ wrap1d(float2 *f, int n0, int n1, int n2, int m2) {
     return;
   if (tz < m2 || tz >= 2 * n2 + m2) {
     int tz0 = (tz - m2 + 2 * n2) % (2 * n2);
-    int id1 = (+tx + tz * n0 + ty * n0 * (2 * n2 + 2 * m2));
-    int id2 = (+tx + (tz0 + m2) * n0 + ty * n0 * 2*n2 );
+    int id1 = (+tx + ty * n0 + tz * n0 * n1);
+    int id2 = (+tx + ty * n0 + (tz0 + m2) * n0 * n1);
     f[id1].x = f[id2].x;
     f[id1].y = f[id2].y;
   }
 }
-
 void __global__ gather1d(float2 *g, float2 *f, float *z, int m2, float mu2,
                          int n0, int n1, int n2, int deth) {
   int tx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -54,7 +52,7 @@ void __global__ gather1d(float2 *g, float2 *f, float *z, int m2, float mu2,
 
   float2 g0;
   float z0 = z[tz];
-  int g_ind = tx + tz * n0 + ty * n0 * n2;
+  int g_ind = tx + tz * n0 + ty * n0 * deth;
   g0.x = 0.0f;
   g0.y = 0.0f;
 
@@ -62,7 +60,7 @@ void __global__ gather1d(float2 *g, float2 *f, float *z, int m2, float mu2,
     int ell2 = floorf(2 * n2 * z0) - m2 + i2;
     float w2 = ell2 / (float)(2 * n2) - z0;
     float w = sqrtf(PI / mu2) * __expf(-PI * PI / mu2 * (w2 * w2));
-    int f_ind = tx + (n2 + m2 + ell2) * n0 + ty * n0 * (2*n2+2*m2);
+    int f_ind = tx + ty * n0 + (n2 + m2 + ell2) * n0 * n1;
 
     g0.x += w * f[f_ind].x;
     g0.y += w * f[f_ind].y;

@@ -10,7 +10,7 @@ void __global__ divker2d(float2 *g, float2 *f, int n0, int n1, int n2, int m0,
     return;
   float ker = __expf(-mu0 * (tx - n0 / 2) * (tx - n0 / 2) -
                      mu1 * (ty - n1 / 2) * (ty - n1 / 2));
-  int f_ind = tx + ty * n0 + tz * n0 * n1;
+  int f_ind = tx + tz * n0 + ty * n0 * n2;
   int g_ind = tx + n0 / 2 + m0 + (ty + n1 / 2 + m1) * (2 * n0 + 2 * m0) +
               tz * (2 * n0 + 2 * m0) * (2 * n1 + 2 * m1);
   g[g_ind].x = f[f_ind].x / ker / (4 * n0 * n1);
