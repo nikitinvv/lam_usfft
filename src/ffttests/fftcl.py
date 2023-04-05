@@ -8,85 +8,10 @@ from ffttests.fft2d import fft2d
 from ffttests import utils
 import time
 
-def eq2us1d(x, f, eps, N):
-    # parameters for the USFFT transform
-    N0 = N
-    mu0 = -np.log(eps)/(2*N0**2)
-    Te1 = 1/np.pi*np.sqrt(-mu0*np.log(eps)+(mu0*N0)**2/4)
-    M0 = np.int32(np.ceil(2*N0*Te1))
-
-    # smearing kernel (ker)
-    ker = np.zeros([2*N0, 1, 1])
-    xeq0 = np.arange(-N0//2, N0//2)
-    ker[N0//2:N0//2+N0] = np.exp(-mu0*xeq0**2)[:, np.newaxis, np.newaxis]
-
-    # FFT and compesantion for smearing
-    fe = np.zeros([2*N0, f.shape[1], f.shape[2]], dtype=complex)
-    fe[N0//2:N0//2+N0, :] = f/(2*N0)/(ker[N0//2:N0//2+N0])
-    Fe0 = np.fft.fftshift(np.fft.fft(
-        np.fft.fftshift(fe, axes=0), axis=0), axes=0)
-
-    # wrapping array Fe0
-    idx = np.arange(-M0, 2*N0+M0)
-    idx0 = np.mod(idx+2*N0, 2*N0)
-    Fe = np.zeros([2*N0+2*M0, *Fe0.shape[1:]], dtype=complex)
-    Fe[idx+M0] = Fe0[idx0]
-
-    # smearing operation (Fe=f*theta)
-    F = np.zeros([x.shape[0], *f.shape[1:]], dtype=complex)
-    for k in range(x.shape[0]):
-        F[k] = 0
-        ell0 = np.int32(np.floor(2*N0*x[k]))
-        for i0 in range(2*M0+1):
-            F[k] += Fe[N0+ell0+i0] * \
-                np.sqrt(np.pi/mu0) * \
-                (np.exp(-np.pi**2/mu0*((ell0-M0+i0)/(2*N0)-x[k])**2))
-    return F
-
-
-def eq2us2d(x, y, s, f, eps, N):
-    # parameters for the USFFT transform
-    [N0, N1] = N
-    mu0 = -np.log(eps)/(2*N0**2)
-    mu1 = -np.log(eps)/(2*N1**2)
-    Te1 = 1/np.pi*np.sqrt(-mu0*np.log(eps)+(mu0*N0)**2/4)
-    Te2 = 1/np.pi*np.sqrt(-mu1*np.log(eps)+(mu1*N1)**2/4)
-    M0 = np.int32(np.ceil(2*N0*Te1))
-    M1 = np.int32(np.ceil(2*N1*Te2))
-
-    # smearing kernel (ker)
-    ker = np.zeros((2*N0, 2*N1))
-    [xeq0, xeq1] = np.mgrid[-N0//2:N0//2, -N1//2:N1//2]
-    ker[N0//2:N0//2+N0, N1//2:N1//2+N1] = np.exp(-mu0*xeq0**2-mu1*xeq1**2)
-    # FFT and compesantion for smearing
-    fe = np.zeros([f.shape[0], 2*N0, 2*N1], dtype=complex)
-    fe[:, N0//2:N0//2+N0, N1//2:N1//2+N1] = f / \
-        (2*N0*2*N1)/ker[N0//2:N0//2+N0, N1//2:N1//2+N1]
-    Fe0 = np.fft.fftshift(np.fft.fft2(
-        np.fft.fftshift(fe, axes=[1, 2])), axes=[1, 2])
-
-    # wrapping array Fe0
-    [idx, idy] = np.mgrid[-M0:2*N0+M0, -M1:2*N1+M1]
-    idx0 = np.mod(idx+2*N0, 2*N0)
-    idy0 = np.mod(idy+2*N1, 2*N1)
-    Fe = np.zeros([f.shape[0], 2*N0+2*M0, 2*N1+2*M1], dtype=complex)
-    Fe[:, idx+M0, idy+M1] = Fe0[:, idx0, idy0]
-
-    # smearing operation (Fe=f*theta)
-    F = np.zeros([x.shape[0]], dtype=complex)
-    for k in range(x.shape[0]):
-        F[k] = 0
-        ell0 = np.int32(np.floor(2*N0*y[k]))
-        ell1 = np.int32(np.floor(2*N1*x[k]))
-        for i0 in range(2*M0+1):
-            for i1 in range(2*M1+1):
-                F[k] += Fe[s[k], N0+ell0+i0, N1+ell1+i1] * np.pi/np.sqrt(mu0*mu1)*(np.exp(-np.pi**2/mu0*(
-                    (ell0-M0+i0)/(2*N0)-y[k])**2-np.pi**2/mu1*((ell1-M1+i1)/(2*N1)-x[k])**2))
-    return F
-
 
 class FFTCL():
     def __init__(self, n0, n1, n2, detw, deth, ntheta, n1c=None, dethc=None, nthetac=None):
+        cp.cuda.set_pinned_memory_allocator(cp.cuda.PinnedMemoryPool().malloc)
         self.n0 = n0
         self.n1 = n1
         self.n2 = n2
@@ -129,7 +54,7 @@ class FFTCL():
         self.cl_usfft1d.free()
         self.cl_usfft2d.free()
 
-    # @profile
+    @profile
     def fwd_usfft1d_chunks(self, out_t, inp_t, out_gpu, inp_gpu,phi):
         ku = (cp.arange(-self.deth//2, self.deth//2) /
               self.deth*cp.sin(phi)).astype('float32')
@@ -138,15 +63,15 @@ class FFTCL():
             inp_gpu.set(inp_t[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast
             self.cl_usfft1d.fwd(out_gpu.data.ptr, inp_gpu.data.ptr, ku.data.ptr)
             cp.cuda.Device(0).synchronize()# for performance tests        
-            print(out_t[k*self.n1c:(k+1)*self.n1c].shape,out_gpu.shape)
             out_gpu.get(out=out_t[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast                            
         
-    # @profile
+    @profile
     def fwd_usfft2d_chunks(self, out, inp, out_gpu, inp_gpu, x_gpu, y_gpu, theta, phi):
-        
+        stream1 = cp.cuda.Stream(non_blocking=False)
         ku0 = (cp.arange(-self.deth//2, self.deth//2)/self.deth).astype('float32')        
         for k in range(self.deth//self.dethc):
-            inp_gpu.set(inp[:,k*self.dethc:(k+1)*self.dethc])# non-contiguous copy, slow but comparable with gpu computations
+            for j in range(inp.shape[0]):
+                inp_gpu[j].set(inp[j,k*self.dethc:(k+1)*self.dethc])# non-contiguous copy, slow but comparable with gpu computations)
             [ku, kv] = np.meshgrid(cp.arange(-self.detw//2, self.detw//2).astype('float32') /
                                    self.detw, ku0[k*self.dethc:(k+1)*self.dethc])
             for itheta in range(self.ntheta):
@@ -162,10 +87,13 @@ class FFTCL():
             self.cl_usfft2d.fwd(out_gpu.data.ptr, inp_gpu.data.ptr, x_gpu.data.ptr, y_gpu.data.ptr)
             cp.cuda.Device(0).synchronize()# for performance tests        
         
+            #with stream1:
             for j in range(out.shape[0]):# non-contiguous copy, slow but comparable with gpu computations
                 out_gpu[:,j].get(out=out[j,k*self.dethc:(k+1)*self.dethc])
+        
+                # out[j,k*self.dethc:(k+1)*self.dethc]=out_gpu[:,j].get()
     
-    # @profile
+    @profile
     def fwd_fft2_chunks(self, out, inp, inp_gpu):
         for k in range(self.ntheta//self.nthetac):
             inp_gpu.set(inp[k*self.nthetac:(k+1)*self.nthetac])# contiguous copy, fast
@@ -174,9 +102,9 @@ class FFTCL():
             inp_gpu.get(out=out[k*self.nthetac:(k+1)*self.nthetac])# contiguous copy, fast                    
     
     def fwd_lam(self, u, theta, phi):
-        pa0 =  utils.pinned_array(np.zeros([ self.n1, self.n0, self.n2], dtype='complex64'))        
+        pa0 =  utils.pinned_array(np.ones([ self.n1, self.n0, self.n2], dtype='complex64'))        
         pa1 =  utils.pinned_array(np.zeros([self.n1, self.deth,  self.n2], dtype='complex64'))
-        pa2 =  np.zeros([self.ntheta,self.deth,  self.detw], dtype='complex64')
+        pa2 =  utils.pinned_array(np.zeros([self.ntheta,self.deth,  self.detw], dtype='complex64'))
         pa3 =  utils.pinned_array(np.zeros([self.ntheta, self.deth, self.detw], dtype='complex64'))
         
         ga0 = cp.zeros([self.n1c, self.n0,   self.n2], dtype='complex64')

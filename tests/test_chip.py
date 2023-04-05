@@ -4,11 +4,11 @@ import dxchange
 import time
 
 n = 256
-n0 = n//4
-n1 = n//8
-n2 = n//2
+n0 = n
+n1 = n
+n2 = n
 detw = n
-deth = n//2
+deth = n
 ntheta = n
 
 n1c = n1//4

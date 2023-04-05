@@ -3,7 +3,7 @@ from ffttests.fftcl import FFTCL
 import dxchange
 import time
 
-n = 1024
+n = 2048
 n0 = n
 n1 = n
 n2 = n
@@ -11,9 +11,9 @@ detw = n
 deth = n
 ntheta = n
 
-n1c = n1//8
-dethc = deth//8
-nthetac = ntheta//8
+n1c = n1//32
+dethc = deth//32
+nthetac = ntheta//32
 phi = np.pi/2-30/180*np.pi
 theta = np.linspace(0, 2*np.pi, ntheta, endpoint=True).astype('float32')
 
