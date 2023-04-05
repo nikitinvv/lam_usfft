@@ -95,15 +95,24 @@ class FFTCL():
     # @profile
     def fwd_usfft2d_chunks(self, out, inp, out_gpu, inp_gpu, theta, phi):
         theta = cp.array(theta)        
-        for k in range(self.deth//self.dethc):
-            for j in range(inp.shape[0]):
-                inp_gpu[j].set(inp[j,k*self.dethc:(k+1)*self.dethc])# non-contiguous copy, slow but comparable with gpu computations)
+        nchunk = self.deth//self.dethc
         
-            self.cl_usfft2d.fwd(out_gpu.data.ptr, inp_gpu.data.ptr,theta.data.ptr, phi, k, self.deth)
-            cp.cuda.Device(0).synchronize()# for performance tests        
-        
-            for j in range(out.shape[0]):# non-contiguous copy, slow but comparable with gpu computations
-                out_gpu[:,j].get(out=out[j,k*self.dethc:(k+1)*self.dethc])
+        for k in range(nchunk+2):            
+            if(k > 0 and k < nchunk+1):
+                with self.stream2:
+                    self.cl_usfft2d.fwd(out_gpu[(k-1)%2].data.ptr, inp_gpu[(k-1)%2].data.ptr,theta.data.ptr, phi, k-1, self.deth, self.stream2.ptr)
+            if(k > 1):
+                with self.stream3:  # gpu->cpu copy
+                    for j in range(out.shape[0]):# non-contiguous copy, slow but comparable with gpu computations
+                        out_gpu[(k-2)%2,:,j].get(out=out[j,(k-2)*self.dethc:(k-1)*self.dethc])
+            if(k<nchunk):
+                with self.stream1:  # cpu->gpu copy           
+                    for j in range(inp.shape[0]):
+                        inp_gpu[k%2,j].set(inp[j,k*self.dethc:(k+1)*self.dethc])# non-contiguous copy, slow but comparable with gpu computations)
+                        
+            self.stream1.synchronize()
+            self.stream2.synchronize()
+            self.stream3.synchronize()                        
             
     # @profile
     def fwd_fft2_chunks(self, out, inp, out_gpu, inp_gpu):
@@ -134,7 +143,7 @@ class FFTCL():
         # step 2: 2d batch usffts in [x,y] direction to the grid ku*cos(theta)+kv * sin(theta)*cos(phi)
         # input [self.deth, self.n1, self.n2], output [self.ntheta, self.deth, self.detw]
         
-        self.fwd_usfft2d_chunks(self.pa2, self.pa1, self.ga3[0], self.ga2[0], theta, phi)
+        self.fwd_usfft2d_chunks(self.pa2, self.pa1, self.ga3, self.ga2, theta, phi)
         # step 3: 2d batch fft in [det x,det y] direction
         # input [self.ntheta, self.deth, self.detw], output [self.ntheta, self.deth, self.detw]        
         
