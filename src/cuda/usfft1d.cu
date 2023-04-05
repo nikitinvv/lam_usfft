@@ -49,17 +49,20 @@ void usfft1d::free() {
   }
 }
 
-void usfft1d::fwd(size_t g_, size_t f_, float phi) {
+void usfft1d::fwd(size_t g_, size_t f_, float phi, size_t stream_) {
 
   f = (float2 *)f_;
   g = (float2 *)g_;
-  cudaMemset(fdee1d, 0, n0 * n1 * (2 * n2 + 2 * m2) * sizeof(float2));
-  take_x<<<GS1dx, BS1dx>>>(x, phi, deth);
-  divker1d<<<GS1d0, BS1d>>>(fdee1d, f, n0, n1, n2, m2, mu2);
-  fftshiftc1d<<<GS1d1, BS1d>>>(fdee1d, n0, n1, 2 * n2 + 2 * m2);
+  stream = (cudaStream_t)stream_;    
+  
+  cufftSetStream(plan1dchunk, stream);
+  cudaMemsetAsync(fdee1d, 0, n0 * n1 * (2 * n2 + 2 * m2) * sizeof(float2), stream);
+  take_x<<<GS1dx, BS1dx, 0, stream>>>(x, phi, deth);
+  divker1d<<<GS1d0, BS1d, 0, stream>>>(fdee1d, f, n0, n1, n2, m2, mu2);
+  fftshiftc1d<<<GS1d1, BS1d, 0, stream>>>(fdee1d, n0, n1, 2 * n2 + 2 * m2);
   cufftExecC2C(plan1dchunk, (cufftComplex *)&fdee1d[m2 * n0 * n1].x,
                (cufftComplex *)&fdee1d[m2 * n0 * n1].x, CUFFT_FORWARD);
-  fftshiftc1d<<<GS1d1, BS1d>>>(fdee1d, n0, n1, 2 * n2 + 2 * m2);
-  wrap1d<<<GS1d1, BS1d>>>(fdee1d, n0, n1, n2, m2);  
-  gather1d<<<GS1d2, BS1d>>>(g, fdee1d, x, m2, mu2, n0, n1, n2, deth);
+  fftshiftc1d<<<GS1d1, BS1d, 0, stream>>>(fdee1d, n0, n1, 2 * n2 + 2 * m2);
+  wrap1d<<<GS1d1, BS1d, 0, stream>>>(fdee1d, n0, n1, n2, m2);  
+  gather1d<<<GS1d2, BS1d, 0, stream>>>(g, fdee1d, x, m2, mu2, n0, n1, n2, deth);
 }
