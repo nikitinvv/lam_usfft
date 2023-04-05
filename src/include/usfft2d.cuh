@@ -14,6 +14,7 @@ class usfft2d {
   float2 *fdee2d;
   float* x;
   float* y;
+  float* theta;
   cufftHandle plan2dchunk;
   
   dim3 BS2d, GS2d0, GS2d1, GS2d2;
@@ -25,7 +26,7 @@ class usfft2d {
 public:  
   usfft2d(size_t n0, size_t n1, size_t n2, size_t ntheta, size_t detw, size_t deth);  
   ~usfft2d();  
-  void fwd(size_t g_, size_t f_, size_t x_, size_t y_);
+  void fwd(size_t g_, size_t f_, size_t theta_, float phi, int k, int deth0);
   void free();
 };
 

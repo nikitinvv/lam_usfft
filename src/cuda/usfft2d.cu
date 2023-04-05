@@ -28,6 +28,9 @@ usfft2d::usfft2d(size_t n0_, size_t n1_, size_t n2_, size_t ntheta_, size_t detw
   inembed[1] = (2 * n0 + 2 * m0);
 
   cudaMalloc((void **)&fdee2d, n2 * (2 * n1 + 2 * m1) * (2 * n0 + 2 * m0) * sizeof(float2));
+  cudaMalloc((void **)&x, deth*detw*ntheta * sizeof(float));
+  cudaMalloc((void **)&y, deth*detw*ntheta * sizeof(float));
+
   cufftPlanMany(&plan2dchunk, 2, ffts, inembed, 1, idist, inembed, 1, idist, CUFFT_C2C, n2);
 
   BS2d = dim3(16, 8, 8);
@@ -47,12 +50,12 @@ void usfft2d::free() {
   }
 }
 
-void usfft2d::fwd(size_t g_, size_t f_, size_t x_, size_t y_) {
+void usfft2d::fwd(size_t g_, size_t f_, size_t theta_, float phi, int k, int deth0) {
 
   f = (float2 *)f_;
   g = (float2 *)g_;
-  x = (float *)x_;
-  y = (float *)y_;
+  theta = (float *)theta_;
+  take_x<<<GS2d2,BS2d>>>(x,y,theta,phi,k, deth0, detw, deth, ntheta);
   cudaMemset(fdee2d, 0, n2 * (2 * n1 + 2 * m1) * (2 * n0 + 2 * m0) * sizeof(float2));
   divker2d<<<GS2d0, BS2d>>>(fdee2d, f, n0, n1, n2, m0, m1, mu0, mu1);
   fftshiftc2d<<<GS2d1, BS2d>>>(fdee2d, (2 * n0 + 2 * m0), (2 * n1 + 2 * m1), n2);

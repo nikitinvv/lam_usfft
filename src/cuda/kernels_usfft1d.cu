@@ -1,5 +1,13 @@
 #define PI 3.1415926535897932384626433
 
+
+void __global__ take_x(float *x, float phi, int deth) {
+  int tx = blockDim.x * blockIdx.x + threadIdx.x;
+  if (tx >= deth)
+    return;
+  x[tx] = (tx - deth/2.0f)/deth*sinf(phi);
+}
+
 // Divide by phi
 void __global__ divker1d(float2 *g, float2 *f, int n0, int n1, int n2, int m2,
                          float mu2) {

@@ -39,11 +39,27 @@ class FFTCL():
             self.dethc, self.n1, self.n2, self.ntheta, self.detw, self.dethc)  # n0 becomes deth
         self.cl_fft2d = fft2d(self.nthetac, self.detw, self.deth)
         
-         # threads for filling the resulting array
-        self.write_threads = []
-        for k in range(16):#16 is probably enough but can be changed
-            self.write_threads.append(utils.WRThread())
-                
+        pinned_block_size = max(self.n1*self.n0*self.n2, self.n1*self.deth*self.n2, self.ntheta*self.deth*self.detw)
+        gpu_block_size_size = max(self.n1c*self.n0*self.n2, self.n1c*self.deth*self.n2, self.n1*self.dethc*self.n2,self.dethc*self.ntheta*self.detw,self.nthetac*self.deth*self.detw)
+        
+        # reusable pinned memory blocks
+        self.pab0 = utils.pinned_array(np.empty(pinned_block_size,dtype='complex64'))
+        self.pab1 = utils.pinned_array(np.empty(pinned_block_size,dtype='complex64'))
+        # pointers (no memory allocation)
+        self.pa0 =  self.pab0[:self.n1*self.n0*self.n2].reshape(self.n1, self.n0, self.n2)
+        self.pa1 =  self.pab1[:self.n1*self.deth*self.detw].reshape(self.n1,self.deth,self.detw)
+        self.pa2 =  self.pab0[:self.ntheta*self.deth*self.detw].reshape(self.ntheta,self.deth,self.detw)
+        self.pa3 =  self.pab1[:self.ntheta*self.deth*self.detw].reshape(self.ntheta,self.deth,self.detw)
+        
+        # reusable gpu memory blocks
+        self.gb0 = cp.empty(gpu_block_size_size,dtype='complex64')
+        self.gb1 = cp.empty(gpu_block_size_size,dtype='complex64')
+        # pointers (no memory allocation)
+        self.ga0 = self.gb0[:self.n1c*self.n0*self.n2].reshape(self.n1c,self.n0,self.n2)
+        self.ga1 = self.gb1[:self.n1c*self.deth*self.n2].reshape(self.n1c,self.deth,self.n2)
+        self.ga2 = self.gb0[:self.n1*self.dethc*self.n2].reshape(self.n1,self.dethc,self.n2)
+        self.ga3 = self.gb1[:self.dethc*self.ntheta*self.detw].reshape(self.dethc,self.ntheta,self.detw)
+        self.ga4 = self.gb0[:self.nthetac*self.deth*self.detw].reshape(self.nthetac,self.deth,self.detw)
 
     def __enter__(self):
         """Return self at start of a with-block."""
@@ -55,77 +71,53 @@ class FFTCL():
         self.cl_usfft2d.free()
 
     @profile
-    def fwd_usfft1d_chunks(self, out_t, inp_t, out_gpu, inp_gpu,phi):
-        ku = (cp.arange(-self.deth//2, self.deth//2) /
-              self.deth*cp.sin(phi)).astype('float32')
-                
+    def fwd_usfft1d_chunks(self, out_t, inp_t, out_gpu, inp_gpu, phi):                
         for k in range(self.n1//self.n1c):
             inp_gpu.set(inp_t[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast
-            self.cl_usfft1d.fwd(out_gpu.data.ptr, inp_gpu.data.ptr, ku.data.ptr)
+            
+            self.cl_usfft1d.fwd(out_gpu.data.ptr, inp_gpu.data.ptr, phi)
             cp.cuda.Device(0).synchronize()# for performance tests        
+            
             out_gpu.get(out=out_t[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast                            
         
     @profile
-    def fwd_usfft2d_chunks(self, out, inp, out_gpu, inp_gpu, x_gpu, y_gpu, theta, phi):
-        stream1 = cp.cuda.Stream(non_blocking=False)
-        ku0 = (cp.arange(-self.deth//2, self.deth//2)/self.deth).astype('float32')        
+    def fwd_usfft2d_chunks(self, out, inp, out_gpu, inp_gpu, theta, phi):
+        theta = cp.array(theta)        
         for k in range(self.deth//self.dethc):
             for j in range(inp.shape[0]):
                 inp_gpu[j].set(inp[j,k*self.dethc:(k+1)*self.dethc])# non-contiguous copy, slow but comparable with gpu computations)
-            [ku, kv] = np.meshgrid(cp.arange(-self.detw//2, self.detw//2).astype('float32') /
-                                   self.detw, ku0[k*self.dethc:(k+1)*self.dethc])
-            for itheta in range(self.ntheta):
-                x_gpu[:,itheta] = ku*cp.cos(theta[itheta])+kv * \
-                    cp.sin(theta[itheta])*cp.cos(phi)
-                y_gpu[:,itheta] = ku*np.sin(theta[itheta])-kv * \
-                    cp.cos(theta[itheta])*cp.cos(phi)
-            x_gpu[x_gpu >= 0.5] = 0.5 - 1e-5
-            x_gpu[x_gpu < -0.5] = -0.5 + 1e-5
-            y_gpu[y_gpu >= 0.5] = 0.5 - 1e-5
-            y_gpu[y_gpu < -0.5] = -0.5 + 1e-5
-
-            self.cl_usfft2d.fwd(out_gpu.data.ptr, inp_gpu.data.ptr, x_gpu.data.ptr, y_gpu.data.ptr)
+        
+            self.cl_usfft2d.fwd(out_gpu.data.ptr, inp_gpu.data.ptr,theta.data.ptr, phi, k, self.deth)
             cp.cuda.Device(0).synchronize()# for performance tests        
         
-            #with stream1:
             for j in range(out.shape[0]):# non-contiguous copy, slow but comparable with gpu computations
                 out_gpu[:,j].get(out=out[j,k*self.dethc:(k+1)*self.dethc])
         
-                # out[j,k*self.dethc:(k+1)*self.dethc]=out_gpu[:,j].get()
-    
     @profile
     def fwd_fft2_chunks(self, out, inp, inp_gpu):
         for k in range(self.ntheta//self.nthetac):
             inp_gpu.set(inp[k*self.nthetac:(k+1)*self.nthetac])# contiguous copy, fast
+            
             self.cl_fft2d.adj(inp_gpu.data.ptr)
             cp.cuda.Device(0).synchronize()# for performance tests          
+            
             inp_gpu.get(out=out[k*self.nthetac:(k+1)*self.nthetac])# contiguous copy, fast                    
-    
+        
     def fwd_lam(self, u, theta, phi):
-        pa0 =  utils.pinned_array(np.ones([ self.n1, self.n0, self.n2], dtype='complex64'))        
-        pa1 =  utils.pinned_array(np.zeros([self.n1, self.deth,  self.n2], dtype='complex64'))
-        pa2 =  utils.pinned_array(np.zeros([self.ntheta,self.deth,  self.detw], dtype='complex64'))
-        pa3 =  utils.pinned_array(np.zeros([self.ntheta, self.deth, self.detw], dtype='complex64'))
         
-        ga0 = cp.zeros([self.n1c, self.n0,   self.n2], dtype='complex64')
-        ga1 = cp.zeros([self.n1c, self.deth, self.n2], dtype='complex64')
-        ga2 = cp.zeros([self.n1, self.dethc,  self.n2], dtype='complex64')
-        ga3 = cp.zeros([self.dethc, self.ntheta, self.detw], dtype='complex64')
-        ga4 = cp.zeros([self.nthetac, self.deth,  self.detw], dtype='complex64')
-        x_gpu = cp.zeros([ self.dethc, self.ntheta,  self.detw], dtype='float32')
-        y_gpu = cp.zeros([ self.dethc, self.ntheta, self.detw], dtype='float32')
+        self.pa0[:] = u.swapaxes(0,1)        
 
-        pa0[:] = u.swapaxes(0,1)
-        
         # step 1: 1d batch usffts in the z direction to the grid ku*sin(phi)
         # input [self.n1, self.n0, self.n2], output [self.n1, self.deth, self.n2]
-        self.fwd_usfft1d_chunks(pa1,pa0,ga1,ga0, phi)                        
+        self.fwd_usfft1d_chunks(self.pa1,self.pa0,self.ga1,self.ga0, phi)                        
         # step 2: 2d batch usffts in [x,y] direction to the grid ku*cos(theta)+kv * sin(theta)*cos(phi)
         # input [self.deth, self.n1, self.n2], output [self.ntheta, self.deth, self.detw]
-        self.fwd_usfft2d_chunks(pa2, pa1, ga3, ga2, x_gpu, y_gpu, theta, phi)
+        
+        self.fwd_usfft2d_chunks(self.pa2, self.pa1, self.ga3, self.ga2, theta, phi)
         # step 3: 2d batch fft in [det x,det y] direction
         # input [self.ntheta, self.deth, self.detw], output [self.ntheta, self.deth, self.detw]        
-        self.fwd_fft2_chunks(pa3, pa2, ga4)
+        
+        self.fwd_fft2_chunks(self.pa3, self.pa2, self.ga4)
     
-        return pa3
+        return self.pa3
 

@@ -1,5 +1,38 @@
 #define PI 3.1415926535897932384626433
 
+// ku0 = (cp.arange(-self.deth//2, self.deth//2)/self.deth).astype('float32')     
+
+
+// [ku, kv] = np.meshgrid(cp.arange(-self.detw//2, self.detw//2).astype('float32') /
+// self.detw, ku0[k*self.dethc:(k+1)*self.dethc])
+// for itheta in range(self.ntheta):
+// x_gpu[:,itheta] = ku*cp.cos(theta[itheta])+kv * \
+// cp.sin(theta[itheta])*cp.cos(phi)
+// y_gpu[:,itheta] = ku*np.sin(theta[itheta])-kv * \
+// cp.cos(theta[itheta])*cp.cos(phi)
+// x_gpu[x_gpu >= 0.5] = 0.5 - 1e-5
+// x_gpu[x_gpu < -0.5] = -0.5 + 1e-5
+// y_gpu[y_gpu >= 0.5] = 0.5 - 1e-5
+// y_gpu[y_gpu < -0.5] = -0.5 + 1e-5
+
+
+
+
+// Divide by phi
+void __global__ take_x(float *x, float *y, float* theta, float phi, int k, int deth0, int detw, int deth, int ntheta) {
+  int tx = blockDim.x * blockIdx.x + threadIdx.x;
+  int ty = blockDim.y * blockIdx.y + threadIdx.y;
+  int tz = blockDim.z * blockIdx.z + threadIdx.z;
+  if (tx >= detw || ty >= deth || tz >= ntheta)
+    return;
+  float ku = (tx-detw/2.0f)/detw;
+  float kv = (ty+k*deth-deth0/2.0f)/deth0;
+  int ind = tx + tz*detw + ty*detw*ntheta;
+  x[ind] = ku*cosf(theta[tz])+kv*sinf(theta[tz])*cosf(phi);
+  y[ind] = ku*sinf(theta[tz])-kv*cosf(theta[tz])*cosf(phi);
+  x[ind] = min(max(x[ind],-0.5f+1e-5),0.5f-1e-5);
+  y[ind] = min(max(y[ind],-0.5f+1e-5),0.5f-1e-5);
+}
 // Divide by phi
 void __global__ divker2d(float2 *g, float2 *f, int n0, int n1, int n2, int m0,
                          int m1, float mu0, float mu1) {
