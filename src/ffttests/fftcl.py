@@ -58,7 +58,7 @@ class FFTCL():
         self.ga0 = self.gb0[:2*self.n1c*self.n0*self.n2].reshape(2,self.n1c,self.n0,self.n2)
         self.ga1 = self.gb1[:2*self.n1c*self.deth*self.n2].reshape(2,self.n1c,self.deth,self.n2)
         self.ga2 = self.gb0[:2*self.n1*self.dethc*self.n2].reshape(2,self.n1,self.dethc,self.n2)
-        self.ga3 = self.gb1[:2*self.dethc*self.ntheta*self.detw].reshape(2,self.dethc,self.ntheta,self.detw)
+        self.ga3 = self.gb1[:2*self.dethc*self.ntheta*self.detw].reshape(2,self.ntheta,self.dethc,self.detw)
         self.ga4 = self.gb0[:2*self.nthetac*self.deth*self.detw].reshape(2,self.nthetac,self.deth,self.detw)
         self.ga5 = self.gb1[:2*self.nthetac*self.deth*self.detw].reshape(2,self.nthetac,self.deth,self.detw)
 
@@ -104,7 +104,7 @@ class FFTCL():
             if(k > 1):
                 with self.stream3:  # gpu->cpu copy
                     for j in range(out.shape[0]):# non-contiguous copy, slow but comparable with gpu computations
-                        out_gpu[(k-2)%2,:,j].get(out=out[j,(k-2)*self.dethc:(k-1)*self.dethc])
+                        out_gpu[(k-2)%2,j].get(out=out[j,(k-2)*self.dethc:(k-1)*self.dethc])                    
             if(k<nchunk):
                 with self.stream1:  # cpu->gpu copy           
                     for j in range(inp.shape[0]):

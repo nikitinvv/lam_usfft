@@ -27,7 +27,7 @@ void __global__ take_x(float *x, float *y, float* theta, float phi, int k, int d
     return;
   float ku = (tx-detw/2.0f)/detw;
   float kv = (ty+k*deth-deth0/2.0f)/deth0;
-  int ind = tx + tz*detw + ty*detw*ntheta;
+  int ind = tx + ty*detw + tz*detw*deth;
   x[ind] = ku*cosf(theta[tz])+kv*sinf(theta[tz])*cosf(phi);
   y[ind] = ku*sinf(theta[tz])-kv*cosf(theta[tz])*cosf(phi);
   x[ind] = min(max(x[ind],-0.5f+1e-5),0.5f-1e-5);
@@ -88,7 +88,7 @@ void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
   if (tx >= detw || ty >= deth || tz >= ntheta)
     return;
 
-  int g_ind = tx + tz * detw + ty * detw * ntheta;
+  int g_ind = tx + ty * detw + tz* detw * deth;
 
   float x0 = x[g_ind];
   float y0 = y[g_ind];
