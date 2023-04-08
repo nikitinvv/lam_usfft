@@ -47,7 +47,7 @@ class FFTCL():
         self.pab1 = utils.pinned_array(np.empty(pinned_block_size,dtype='complex64'))
         # pointers (no memory allocation)
         self.pa0 =  self.pab0[:self.n1*self.n0*self.n2].reshape(self.n1, self.n0, self.n2)
-        self.pa1 =  self.pab1[:self.n1*self.deth*self.detw].reshape(self.n1,self.deth,self.detw)
+        self.pa1 =  self.pab1[:self.n1*self.deth*self.n2].reshape(self.n1,self.deth,self.n2)
         self.pa2 =  self.pab0[:self.ntheta*self.deth*self.detw].reshape(self.ntheta,self.deth,self.detw)
         self.pa3 =  self.pab1[:self.ntheta*self.deth*self.detw].reshape(self.ntheta,self.deth,self.detw)
         
@@ -139,6 +139,7 @@ class FFTCL():
 
         # step 1: 1d batch usffts in the z direction to the grid ku*sin(phi)
         # input [self.n1, self.n0, self.n2], output [self.n1, self.deth, self.n2]
+        (self.n1,self.deth,self.detw)
         self.fwd_usfft1d_chunks(self.pa1,self.pa0,self.ga1,self.ga0, phi)                        
         # step 2: 2d batch usffts in [x,y] direction to the grid ku*cos(theta)+kv * sin(theta)*cos(phi)
         # input [self.deth, self.n1, self.n2], output [self.ntheta, self.deth, self.detw]
