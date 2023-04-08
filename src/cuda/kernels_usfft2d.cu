@@ -35,7 +35,7 @@ void __global__ take_x(float *x, float *y, float* theta, float phi, int k, int d
 }
 // Divide by phi
 void __global__ divker2d(float2 *g, float2 *f, int n0, int n1, int n2, int m0,
-                         int m1, float mu0, float mu1) {
+                         int m1, float mu0, float mu1, bool direction) {
   int tx = blockDim.x * blockIdx.x + threadIdx.x;
   int ty = blockDim.y * blockIdx.y + threadIdx.y;
   int tz = blockDim.z * blockIdx.z + threadIdx.z;
@@ -46,8 +46,14 @@ void __global__ divker2d(float2 *g, float2 *f, int n0, int n1, int n2, int m0,
   int f_ind = tx + tz * n0 + ty * n0 * n2;
   int g_ind = tx + n0 / 2 + m0 + (ty + n1 / 2 + m1) * (2 * n0 + 2 * m0) +
               tz * (2 * n0 + 2 * m0) * (2 * n1 + 2 * m1);
-  g[g_ind].x = f[f_ind].x / ker / (4 * n0 * n1);
-  g[g_ind].y = f[f_ind].y / ker / (4 * n0 * n1);
+  
+  if (direction == 0){
+    g[g_ind].x = f[f_ind].x / ker / (4 * n0 * n1);
+    g[g_ind].y = f[f_ind].y / ker / (4 * n0 * n1);
+  } else {
+    f[f_ind].x = g[g_ind].x / ker / (4 * n0 * n1);
+    f[f_ind].y = g[g_ind].y / ker / (4 * n0 * n1);
+  }
 }
 
 void __global__ fftshiftc2d(float2 *f, int n0, int n1, int n2) {
@@ -61,7 +67,7 @@ void __global__ fftshiftc2d(float2 *f, int n0, int n1, int n2) {
   f[tx + ty * n0 + tz * n0 * n1].y *= g;
 }
 
-void __global__ wrap2d(float2 *f, int n0, int n1, int n2, int m0, int m1) {
+void __global__ wrap2d(float2 *f, int n0, int n1, int n2, int m0, int m1, bool direction) {
   int tx = blockDim.x * blockIdx.x + threadIdx.x;
   int ty = blockDim.y * blockIdx.y + threadIdx.y;
   int tz = blockDim.z * blockIdx.z + threadIdx.z;
@@ -74,13 +80,18 @@ void __global__ wrap2d(float2 *f, int n0, int n1, int n2, int m0, int m1) {
                tz * (2 * n0 + 2 * m0) * (2 * n1 + 2 * m1));
     int id2 = (+tx0 + m0 + (ty0 + m1) * (2 * n0 + 2 * m0) +
                tz * (2 * n0 + 2 * m0) * (2 * n1 + 2 * m1));
-    f[id1].x = f[id2].x;
-    f[id1].y = f[id2].y;
+    if (direction == 0) {
+      f[id1].x = f[id2].x;
+      f[id1].y = f[id2].y;
+    } else {
+      atomicAdd(&f[id2].x, f[id1].x);
+      atomicAdd(&f[id2].y, f[id1].y);
+    }
   }
 }
 void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
                          int m1, float mu0, float mu1, int n0, int n1, int n2,
-                         int detw, int deth, int ntheta) {
+                         int detw, int deth, int ntheta, bool direction) {
   int tx = blockDim.x * blockIdx.x + threadIdx.x;
   int ty = blockDim.y * blockIdx.y + threadIdx.y;
   int tz = blockDim.z * blockIdx.z + threadIdx.z;
@@ -94,8 +105,13 @@ void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
   float y0 = y[g_ind];
 
   float2 g0;
-  g0.x = 0.0f;
-  g0.y = 0.0f;
+  if (direction == 0) {
+    g0.x = 0.0f;
+    g0.y = 0.0f;
+  } else {
+    g0.x = g[g_ind].x;
+    g0.y = g[g_ind].y;
+  }
   for (int i1 = 0; i1 < 2 * m1 + 1; i1++) {
     int ell1 = floorf(2 * n1 * y0) - m1 + i1;
     for (int i0 = 0; i0 < 2 * m0 + 1; i0++) {
@@ -106,10 +122,19 @@ void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
                 __expf(-PI * PI / mu0 * (w0 * w0) - PI * PI / mu1 * (w1 * w1));
       int f_ind = n0 + m0 + ell0 + (2 * n0 + 2 * m0) * (n1 + m1 + ell1) +
                   (2 * n0 + 2 * m0) * (2 * n1 + 2 * m1) * ty;
-      g0.x += w * f[f_ind].x;
-      g0.y += w * f[f_ind].y;
+      if (direction == 0) {
+        g0.x += w * f[f_ind].x;
+        g0.y += w * f[f_ind].y;
+      } else {
+        float *fx = &(f[f_ind].x);
+        float *fy = &(f[f_ind].y);
+        atomicAdd(fx, w * g0.x);
+        atomicAdd(fy, w * g0.y);
+      }
     }
   }
-  g[g_ind].x = g0.x;
-  g[g_ind].y = g0.y;
+  if (direction == 0){
+    g[g_ind].x = g0.x;
+    g[g_ind].y = g0.y;
+  }
 }

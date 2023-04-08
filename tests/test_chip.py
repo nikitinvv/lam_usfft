@@ -20,10 +20,11 @@ theta = np.linspace(0, 2*np.pi, ntheta, endpoint=True).astype('float32')
 with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
     f = -dxchange.read_tiff('delta-chip-256.tiff')[128-n0//2:128+n0//2,128-n1//2:128+n1//2,128-n2//2:128+n2//2]+1j*dxchange.read_tiff('delta-chip-256.tiff')[128-n0//2:128+n0//2,128-n1//2:128+n1//2,128-n2//2:128+n2//2]
 
-    for k in range(1):    
-        t = time.time()
-        res = slv.fwd_lam(f, theta, phi)
-        print(time.time()-t)
-    dxchange.write_tiff(res.real, 'res/datare.tiff', overwrite=True)
-    dxchange.write_tiff(res.imag, 'res/dataim.tiff', overwrite=True)
-    print(np.linalg.norm(res))
+    data = slv.fwd_lam(f, theta, phi)
+    fr = slv.adj_lam(data, theta, phi)
+    
+    print(np.sum(f*np.conj(fr)),np.sum(data*np.conj(data)))    
+    dxchange.write_tiff(data.real, 'res/datare.tiff', overwrite=True)
+    dxchange.write_tiff(data.imag, 'res/dataim.tiff', overwrite=True)
+    
+    print(np.linalg.norm(data))

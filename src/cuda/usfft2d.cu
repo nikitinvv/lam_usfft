@@ -61,10 +61,29 @@ void usfft2d::fwd(size_t g_, size_t f_, size_t theta_, float phi, int k, int det
 
   take_x<<<GS2d2,BS2d,0,stream>>>(x,y,theta,phi,k, deth0, detw, deth, ntheta);
   cudaMemsetAsync(fdee2d, 0, n2 * (2 * n1 + 2 * m1) * (2 * n0 + 2 * m0) * sizeof(float2),stream);
-  divker2d<<<GS2d0, BS2d, 0,stream>>>(fdee2d, f, n0, n1, n2, m0, m1, mu0, mu1);
+  divker2d<<<GS2d0, BS2d, 0,stream>>>(fdee2d, f, n0, n1, n2, m0, m1, mu0, mu1, 0);
   fftshiftc2d<<<GS2d1, BS2d, 0,stream>>>(fdee2d, (2 * n0 + 2 * m0), (2 * n1 + 2 * m1), n2);
   cufftExecC2C(plan2dchunk, (cufftComplex *)&fdee2d[m0 + m1 * (2 * n0 + 2 * m0)].x, (cufftComplex *)&fdee2d[m0 + m1 * (2 * n0 + 2 * m0)].x, CUFFT_FORWARD);
   fftshiftc2d<<<GS2d1, BS2d, 0,stream>>>(fdee2d, (2 * n0 + 2 * m0), (2 * n1 + 2 * m1), n2);
-  wrap2d<<<GS2d1, BS2d, 0,stream>>>(fdee2d, n0, n1, n2, m0, m1);
-  gather2d<<<GS2d2, BS2d, 0,stream>>>(g, fdee2d, x, y, m0, m1, mu0, mu1, n0, n1, n2, detw, deth, ntheta);  
+  wrap2d<<<GS2d1, BS2d, 0,stream>>>(fdee2d, n0, n1, n2, m0, m1, 0);
+  gather2d<<<GS2d2, BS2d, 0,stream>>>(g, fdee2d, x, y, m0, m1, mu0, mu1, n0, n1, n2, detw, deth, ntheta, 0);  
+}
+
+void usfft2d::adj(size_t f_, size_t g_, size_t theta_, float phi, int k, int deth0, size_t stream_) {
+
+  f = (float2 *)f_;
+  g = (float2 *)g_;
+  theta = (float *)theta_;
+  stream = (cudaStream_t)stream_;    
+  
+  cufftSetStream(plan2dchunk, stream);
+
+  take_x<<<GS2d2,BS2d,0,stream>>>(x,y,theta,phi,k, deth0, detw, deth, ntheta);
+  cudaMemsetAsync(fdee2d, 0, n2 * (2 * n1 + 2 * m1) * (2 * n0 + 2 * m0) * sizeof(float2),stream);
+  gather2d<<<GS2d2, BS2d, 0,stream>>>(g, fdee2d, x, y, m0, m1, mu0, mu1, n0, n1, n2, detw, deth, ntheta,1);  
+  wrap2d<<<GS2d1, BS2d, 0,stream>>>(fdee2d, n0, n1, n2, m0, m1, 1);
+  fftshiftc2d<<<GS2d1, BS2d, 0,stream>>>(fdee2d, (2 * n0 + 2 * m0), (2 * n1 + 2 * m1), n2);
+  cufftExecC2C(plan2dchunk, (cufftComplex *)&fdee2d[m0 + m1 * (2 * n0 + 2 * m0)].x, (cufftComplex *)&fdee2d[m0 + m1 * (2 * n0 + 2 * m0)].x, CUFFT_INVERSE);
+  fftshiftc2d<<<GS2d1, BS2d, 0,stream>>>(fdee2d, (2 * n0 + 2 * m0), (2 * n1 + 2 * m1), n2);
+  divker2d<<<GS2d0, BS2d, 0,stream>>>(fdee2d, f, n0, n1, n2, m0, m1, mu0, mu1, 1);
 }

@@ -45,3 +45,15 @@ void fft2d::adj(size_t g_, size_t f_, size_t stream_) {
   cufftExecC2C(plan2dchunk, (cufftComplex *)f, (cufftComplex *)g, CUFFT_INVERSE);
   fftshiftc2d<<<GS2d0, BS2d, 0, stream>>>(g, detw, deth, ntheta);  
 }
+
+void fft2d::fwd(size_t g_, size_t f_, size_t stream_) {
+
+  f = (float2 *)f_;
+  g = (float2 *)g_;
+  stream = (cudaStream_t)stream_;    
+  
+  cufftSetStream(plan2dchunk, stream);
+  fftshiftc2d<<<GS2d0, BS2d, 0, stream>>>(f, detw, deth, ntheta);
+  cufftExecC2C(plan2dchunk, (cufftComplex *)f, (cufftComplex *)g, CUFFT_FORWARD);
+  fftshiftc2d<<<GS2d0, BS2d, 0, stream>>>(g, detw, deth, ntheta);  
+}

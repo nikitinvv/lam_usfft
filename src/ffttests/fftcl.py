@@ -76,12 +76,15 @@ class FFTCL():
         self.cl_usfft2d.free()
 
     # @profile
-    def fwd_usfft1d_chunks(self, out_t, inp_t, out_gpu, inp_gpu, phi):                
+    def usfft1d_chunks(self, out_t, inp_t, out_gpu, inp_gpu, phi, direction='fwd'):               
         nchunk = self.n1//self.n1c
         for k in range(nchunk+2):
             if(k > 0 and k < nchunk+1):
                 with self.stream2:
-                    self.cl_usfft1d.fwd(out_gpu[(k-1)%2].data.ptr, inp_gpu[(k-1)%2].data.ptr, phi, self.stream2.ptr)
+                    if direction == 'fwd':
+                        self.cl_usfft1d.fwd(out_gpu[(k-1)%2].data.ptr, inp_gpu[(k-1)%2].data.ptr, phi, self.stream2.ptr)
+                    else:
+                        self.cl_usfft1d.adj(out_gpu[(k-1)%2].data.ptr, inp_gpu[(k-1)%2].data.ptr, phi, self.stream2.ptr)
             if(k > 1):
                 with self.stream3:  # gpu->cpu copy
                     out_gpu[(k-2)%2].get(out=out_t[(k-2)*self.n1c:(k-1)*self.n1c])# contiguous copy, fast                            
@@ -91,16 +94,19 @@ class FFTCL():
             self.stream1.synchronize()
             self.stream2.synchronize()
             self.stream3.synchronize()
-
+            
     # @profile
-    def fwd_usfft2d_chunks(self, out, inp, out_gpu, inp_gpu, theta, phi):
+    def usfft2d_chunks(self, out, inp, out_gpu, inp_gpu, theta, phi, direction='fwd'):
         theta = cp.array(theta)        
         nchunk = self.deth//self.dethc
         
         for k in range(nchunk+2):            
             if(k > 0 and k < nchunk+1):
                 with self.stream2:
-                    self.cl_usfft2d.fwd(out_gpu[(k-1)%2].data.ptr, inp_gpu[(k-1)%2].data.ptr,theta.data.ptr, phi, k-1, self.deth, self.stream2.ptr)
+                    if direction == 'fwd':
+                        self.cl_usfft2d.fwd(out_gpu[(k-1)%2].data.ptr, inp_gpu[(k-1)%2].data.ptr,theta.data.ptr, phi, k-1, self.deth, self.stream2.ptr)
+                    else:
+                        self.cl_usfft2d.adj(out_gpu[(k-1)%2].data.ptr, inp_gpu[(k-1)%2].data.ptr,theta.data.ptr, phi, k-1, self.deth, self.stream2.ptr)
             if(k > 1):
                 with self.stream3:  # gpu->cpu copy
                     for j in range(out.shape[0]):# non-contiguous copy, slow but comparable with gpu computations
@@ -112,15 +118,17 @@ class FFTCL():
                         
             self.stream1.synchronize()
             self.stream2.synchronize()
-            self.stream3.synchronize()                        
+            self.stream3.synchronize()                                    
             
-    # @profile
-    def fwd_fft2_chunks(self, out, inp, out_gpu, inp_gpu):
+    def fft2_chunks(self, out, inp, out_gpu, inp_gpu, direction='fwd'):
         nchunk = self.ntheta//self.nthetac
         for k in range(nchunk+2):
             if(k > 0 and k < nchunk+1):
                 with self.stream2:
-                    self.cl_fft2d.adj(out_gpu[(k-1)%2].data.ptr,inp_gpu[(k-1)%2].data.ptr,self.stream2.ptr)
+                    if direction == 'fwd':
+                        self.cl_fft2d.fwd(out_gpu[(k-1)%2].data.ptr,inp_gpu[(k-1)%2].data.ptr,self.stream2.ptr)
+                    else:
+                        self.cl_fft2d.adj(out_gpu[(k-1)%2].data.ptr,inp_gpu[(k-1)%2].data.ptr,self.stream2.ptr)
             if(k > 1):
                 with self.stream3:  # gpu->cpu copy        
                     out_gpu[(k-2)%2].get(out=out[(k-2)*self.nthetac:(k-1)*self.nthetac])# contiguous copy, fast                                        
@@ -139,16 +147,24 @@ class FFTCL():
 
         # step 1: 1d batch usffts in the z direction to the grid ku*sin(phi)
         # input [self.n1, self.n0, self.n2], output [self.n1, self.deth, self.n2]
-        (self.n1,self.deth,self.detw)
-        self.fwd_usfft1d_chunks(self.pa1,self.pa0,self.ga1,self.ga0, phi)                        
+        self.usfft1d_chunks(self.pa1,self.pa0,self.ga1,self.ga0, phi, direction='fwd')                        
         # step 2: 2d batch usffts in [x,y] direction to the grid ku*cos(theta)+kv * sin(theta)*cos(phi)
-        # input [self.deth, self.n1, self.n2], output [self.ntheta, self.deth, self.detw]
+        # input [self.n1, self.deth, self.n2], output [self.ntheta, self.deth, self.detw]
         
-        self.fwd_usfft2d_chunks(self.pa2, self.pa1, self.ga3, self.ga2, theta, phi)
+        self.usfft2d_chunks(self.pa2, self.pa1, self.ga3, self.ga2, theta, phi, direction='fwd')
         # step 3: 2d batch fft in [det x,det y] direction
         # input [self.ntheta, self.deth, self.detw], output [self.ntheta, self.deth, self.detw]        
-        
-        self.fwd_fft2_chunks(self.pa3, self.pa2, self.ga5, self.ga4)
-    
-        return self.pa3
+        self.fft2_chunks(self.pa3, self.pa2, self.ga5, self.ga4, direction='adj')
 
+        data = self.pa3.copy()
+        return data
+
+    def adj_lam(self, data, theta, phi):
+        self.pa3[:] = data    
+        #steps 1,2,3 of the fwd operator but in reverse order
+        self.fft2_chunks(self.pa2, self.pa3, self.ga4, self.ga5, direction='fwd')
+        self.usfft2d_chunks(self.pa1, self.pa2, self.ga2, self.ga3, theta, phi, direction='adj')
+        self.usfft1d_chunks(self.pa0,self.pa1,self.ga0,self.ga1, phi, direction='adj')
+        
+        u = self.pa0.swapaxes(0,1).copy()                                
+        return u
