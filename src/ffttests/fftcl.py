@@ -143,8 +143,7 @@ class FFTCL():
     # @profile    
     def fwd_lam(self, u, theta, phi):
         
-        self.pa0[:] = u.swapaxes(0,1)        
-
+        self.pa0[:] = u
         # step 1: 1d batch usffts in the z direction to the grid ku*sin(phi)
         # input [self.n1, self.n0, self.n2], output [self.n1, self.deth, self.n2]
         self.usfft1d_chunks(self.pa1,self.pa0,self.ga1,self.ga0, phi, direction='fwd')                        
@@ -160,11 +159,12 @@ class FFTCL():
         return data
 
     def adj_lam(self, data, theta, phi):
+        
         self.pa3[:] = data    
         #steps 1,2,3 of the fwd operator but in reverse order
         self.fft2_chunks(self.pa2, self.pa3, self.ga4, self.ga5, direction='fwd')
         self.usfft2d_chunks(self.pa1, self.pa2, self.ga2, self.ga3, theta, phi, direction='adj')
         self.usfft1d_chunks(self.pa0,self.pa1,self.ga0,self.ga1, phi, direction='adj')
         
-        u = self.pa0.swapaxes(0,1).copy()                                
+        u = self.pa0.copy()                                
         return u
