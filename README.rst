@@ -20,8 +20,9 @@ Adjoint test:
 
   cd tests;
   python test_chip.py
-
-
+  (38077720000-1336.0157j) (38077747000-0.17443448j)
+  195134.03
+  
 ======================================
 Performance test with nvidia profiling
 ======================================
