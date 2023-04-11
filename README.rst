@@ -29,7 +29,6 @@ Performance test with nvidia profiling
 ::
 
   cd tests;
-  python test_chip.py
   nsys profile python test_perf.py
   # open the generated file with nsys-ui
 
