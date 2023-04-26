@@ -3,7 +3,7 @@ from ffttests.fftcl import FFTCL
 import dxchange
 import time
 
-n = 1024
+n = 512
 n0 = n
 n1 = n
 n2 = n

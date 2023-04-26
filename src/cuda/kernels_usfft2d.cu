@@ -1,22 +1,5 @@
 #define PI 3.1415926535897932384626433
 
-// ku0 = (cp.arange(-self.deth//2, self.deth//2)/self.deth).astype('float32')     
-
-
-// [ku, kv] = np.meshgrid(cp.arange(-self.detw//2, self.detw//2).astype('float32') /
-// self.detw, ku0[k*self.dethc:(k+1)*self.dethc])
-// for itheta in range(self.ntheta):
-// x_gpu[:,itheta] = ku*cp.cos(theta[itheta])+kv * \
-// cp.sin(theta[itheta])*cp.cos(phi)
-// y_gpu[:,itheta] = ku*np.sin(theta[itheta])-kv * \
-// cp.cos(theta[itheta])*cp.cos(phi)
-// x_gpu[x_gpu >= 0.5] = 0.5 - 1e-5
-// x_gpu[x_gpu < -0.5] = -0.5 + 1e-5
-// y_gpu[y_gpu >= 0.5] = 0.5 - 1e-5
-// y_gpu[y_gpu < -0.5] = -0.5 + 1e-5
-
-
-
 
 // Divide by phi
 void __global__ take_x(float *x, float *y, float* theta, float phi, int k, int deth0, int detw, int deth, int ntheta) {
@@ -118,7 +101,7 @@ void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
       int ell0 = floorf(2 * n0 * x0) - m0 + i0;
       float w0 = ell0 / (float)(2 * n0) - x0;
       float w1 = ell1 / (float)(2 * n1) - y0;
-      float w = PI / sqrtf(mu0 * mu1) *
+      float w = PI / sqrtf(mu0 * mu1 * ntheta) *
                 __expf(-PI * PI / mu0 * (w0 * w0) - PI * PI / mu1 * (w1 * w1));
       int f_ind = n0 + m0 + ell0 + (2 * n0 + 2 * m0) * (n1 + m1 + ell1) +
                   (2 * n0 + 2 * m0) * (2 * n1 + 2 * m1) * ty;

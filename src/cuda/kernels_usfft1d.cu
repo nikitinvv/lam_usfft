@@ -84,7 +84,7 @@ void __global__ gather1d(float2 *g, float2 *f, float *z, int m2, float mu2,
   for (int i2 = 0; i2 < 2 * m2 + 1; i2++) {
     int ell2 = floorf(2 * n2 * z0) - m2 + i2;
     float w2 = ell2 / (float)(2 * n2) - z0;
-    float w = sqrtf(PI / mu2) * __expf(-PI * PI / mu2 * (w2 * w2));
+    float w = sqrtf(PI / (mu2*n0)) * __expf(-PI * PI / mu2 * (w2 * w2));
     int f_ind = tx + ty * n0 + (n2 + m2 + ell2) * n0 * n1;
 
     if (direction == 0) {

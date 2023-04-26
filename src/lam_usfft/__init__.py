@@ -1,10 +1,10 @@
 from pkg_resources import get_distribution, DistributionNotFound
 
-from ffttests.usfft1d import *
-from ffttests.usfft2d import *
-from ffttests.fft2d import *
-from ffttests.fftcl import *
-from ffttests.utils import *
+from lam_usfft.usfft1d import *
+from lam_usfft.usfft2d import *
+from lam_usfft.fft2d import *
+from lam_usfft.fftcl import *
+from lam_usfft.utils import *
 try:
     __version__ = get_distribution(__name__).version
 except DistributionNotFound:

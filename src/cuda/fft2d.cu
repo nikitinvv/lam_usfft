@@ -44,6 +44,7 @@ void fft2d::adj(size_t g_, size_t f_, size_t stream_) {
   fftshiftc2d<<<GS2d0, BS2d, 0, stream>>>(f, detw, deth, ntheta);
   cufftExecC2C(plan2dchunk, (cufftComplex *)f, (cufftComplex *)g, CUFFT_INVERSE);
   fftshiftc2d<<<GS2d0, BS2d, 0, stream>>>(g, detw, deth, ntheta);  
+  mulc<<<GS2d0, BS2d, 0, stream>>>(g, detw, deth, ntheta, 1.f/(deth*detw));  
 }
 
 void fft2d::fwd(size_t g_, size_t f_, size_t stream_) {
@@ -56,4 +57,5 @@ void fft2d::fwd(size_t g_, size_t f_, size_t stream_) {
   fftshiftc2d<<<GS2d0, BS2d, 0, stream>>>(f, detw, deth, ntheta);
   cufftExecC2C(plan2dchunk, (cufftComplex *)f, (cufftComplex *)g, CUFFT_FORWARD);
   fftshiftc2d<<<GS2d0, BS2d, 0, stream>>>(g, detw, deth, ntheta);  
+  mulc<<<GS2d0, BS2d, 0, stream>>>(g, detw, deth, ntheta, 1.f/(deth*detw));  
 }
