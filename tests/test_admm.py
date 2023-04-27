@@ -5,10 +5,10 @@ import time
 import scipy.ndimage as ndimage
 
 n = 256
-n0 = n
-n1 = n
+n0 = n//4
+n1 = n//2
 n2 = n
-detw = n
+detw = n*2
 deth = n
 ntheta = n
 
@@ -18,8 +18,8 @@ nthetac = ntheta//4
 phi = np.pi/2-30/180*np.pi
 theta = np.linspace(0, 2*np.pi, ntheta, endpoint=True).astype('float32')
 
-u = dxchange.read_tiff('delta-chip-256.tiff').swapaxes(0,1)
-u = ndimage.zoom(u,n//256,order=1).astype('complex64')
+u = dxchange.read_tiff('delta-chip-256.tiff')[128-n0//2:128+n0//2,128-n1//2:128+n1//2,128-n2//2:128+n2//2].swapaxes(0,1).astype('complex64')
+# u = ndimage.zoom(u,n//256,order=1).astype('complex64')
 with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:    
     data = slv.fwd_lam(u, theta, phi)    
     
@@ -30,7 +30,7 @@ with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
     lamd = np.zeros([3,*u.shape],dtype='complex64')    
     niter = 16
     liter = 4
-    alpha = 5e-8
+    alpha = 3e-8
     u = slv.admm(data, h, psi, lamd, u, theta, phi, alpha, liter, niter, dbg=True)
     
     dxchange.write_tiff(u.real, 'res/ure.tiff', overwrite=True)
