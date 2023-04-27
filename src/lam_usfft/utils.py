@@ -57,3 +57,20 @@ def write_array(res,res0,st,end):
     
 def read_array(res0,res,st,end):             
     res0[:,:end-st] = res[:,st:end]
+
+def _copy(res, u, st, end):
+    res[st:end] = u[st:end]
+    
+def copy(u, res=[], nthreads=8):
+    if res==[]:
+        res = np.empty_like(u)
+    nchunk = int(np.ceil(u.shape[0]//nthreads))
+    mthreads = []
+    for k in range(nthreads):
+        th = Thread(target=_copy,args=(res,u,k*nchunk,min((k+1)*nchunk,u.shape[0])))
+        mthreads.append(th)
+        th.start()
+    for k in range(nthreads):
+        th.join()
+    return res
+    

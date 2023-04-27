@@ -4,6 +4,7 @@ from lam_usfft.usfft1d import usfft1d
 from lam_usfft.usfft2d import usfft2d
 from lam_usfft.fft2d import fft2d
 from lam_usfft import utils
+from threading import Thread
 import time
 
 
@@ -64,6 +65,9 @@ class FFTCL():
         self.stream1 = cp.cuda.Stream(non_blocking=False)
         self.stream2 = cp.cuda.Stream(non_blocking=False)
         self.stream3 = cp.cuda.Stream(non_blocking=False)
+        
+        
+        
     def __enter__(self):
         """Return self at start of a with-block."""
         return self
@@ -138,10 +142,10 @@ class FFTCL():
             self.stream2.synchronize()
             self.stream3.synchronize()
             
-    # @profile    
+    @profile    
     def fwd_lam(self, u, theta, phi):
         
-        self.pa0[:] = u
+        utils.copy(u,self.pa0)
         # step 1: 1d batch usffts in the z direction to the grid ku*sin(phi)
         # input [self.n1, self.n0, self.n2], output [self.n1, self.deth, self.n2]
         self.usfft1d_chunks(self.pa1,self.pa0,self.ga1,self.ga0, phi, direction='fwd')                        
@@ -153,21 +157,20 @@ class FFTCL():
         # input [self.ntheta, self.deth, self.detw], output [self.ntheta, self.deth, self.detw]        
         self.fft2_chunks(self.pa3, self.pa2, self.ga5, self.ga4, direction='adj')
 
-        data = self.pa3.copy()
-       # c = np.float32(1/np.sqrt(self.ntheta*self.n0))
-        return data#*c
+        data = utils.copy(self.pa3)
+        
+        return data
     
+    @profile
     def adj_lam(self, data, theta, phi):
         
-        self.pa3[:] = data    
+        utils.copy(data,self.pa3)
         #steps 1,2,3 of the fwd operator but in reverse order
         self.fft2_chunks(self.pa2, self.pa3, self.ga4, self.ga5, direction='fwd')
         self.usfft2d_chunks(self.pa1, self.pa2, self.ga2, self.ga3, theta, phi, direction='adj')
-        self.usfft1d_chunks(self.pa0,self.pa1,self.ga0,self.ga1, phi, direction='adj')
-        
-        u = self.pa0.copy()                                
-        #c = np.float32(1/np.sqrt(self.ntheta*self.n0))
-        return u#*c
+        self.usfft1d_chunks(self.pa0,self.pa1,self.ga0,self.ga1, phi, direction='adj')        
+        u = utils.copy(self.pa0)
+        return u
 
     ##FUNCTIONS FOR ITERATIVE SCHEMES        
     def line_search(self, minf, gamma, Lu, Ld):
@@ -184,7 +187,7 @@ class FFTCL():
                 gamma = 0
                 break
         return gamma
-    
+    @profile
     def cg_lam(self, data, u, theta, phi, titer, dbg=False):
         """CG solver for ||Lu-data||_2"""
         
@@ -204,7 +207,7 @@ class FFTCL():
             # line search
             #Ld = self.fwd_lam(d, theta, phi)
             gamma = 1#0.5*self.line_search(minf, 8, Lu, Ld)
-            grad0 = grad.copy()
+            grad0 = utils.copy(grad)
             # update step
             u = u + gamma*d
             # check convergence
@@ -213,30 +216,80 @@ class FFTCL():
                         (i, gamma, minf(Lu)))
         return u
 
-
-    def fwd_reg(self, u):
+    # def fwd_reg(self, u):
+    #     """Forward operator for regularization"""
+    #     res = np.zeros([3, *u.shape], dtype='complex64')
+    #     res[0, :, :, :-1] = u[:, :, 1:]-u[:, :, :-1]
+    #     res[1, :, :-1, :] = u[:, 1:, :]-u[:, :-1, :]
+    #     res[2, :-1, :, :] = u[1:, :, :]-u[:-1, :, :]
+    #     res*=1/np.sqrt(3)
+    #     return res
+    
+    ##########Parallel version
+    def _fwd_reg(self, res, u, st, end):
         """Forward operator for regularization"""
+        
+        res[0, st:end, :, :-1] = u[st:end, :, 1:]-u[st:end, :, :-1]
+        res[1, st:end, :-1, :] = u[st:end, 1:, :]-u[st:end, :-1, :]
+        end0 = min(u.shape[0]-1,end)
+        res[2, st:end0, :, :] = u[1+st:1+end0, :, :]-u[st:end0, :, :]
+        res[:,st:end] *=1/np.sqrt(3)
+    
+    def fwd_reg(self, u, nthreads=16):
         res = np.zeros([3, *u.shape], dtype='complex64')
-        res[0, :, :, :-1] = u[:, :, 1:]-u[:, :, :-1]
-        res[1, :, :-1, :] = u[:, 1:, :]-u[:, :-1, :]
-        res[2, :-1, :, :] = u[1:, :, :]-u[:-1, :, :]
-        res*=1/np.sqrt(3)
+        nchunk = int(np.ceil(u.shape[0]//nthreads))
+        mthreads = []
+        for k in range(nthreads):
+            th = Thread(target=self._fwd_reg,args=(res,u,k*nchunk,min((k+1)*nchunk,u.shape[0])))
+            mthreads.append(th)
+            th.start()
+        for k in range(nthreads):
+            th.join()
         return res
 
-
-    def adj_reg(self, gr):
-        """Adjoint operator for regularization"""
+   # def adj_reg0(self, gr):
+    #     """Adjoint operator for regularization"""
+    #     res = np.zeros(gr.shape[1:], dtype='complex64')
+    #     res[:, :, 1:] = gr[0, :, :, 1:]-gr[0, :, :, :-1]
+    #     res[:, :, 0] = gr[0, :, :, 0]
+    #     res[:, 1:, :] += gr[1, :, 1:, :]-gr[1, :, :-1, :]
+    #     res[:, 0, :] += gr[1, :, 0, :]
+    #     res[1:, :, :] += gr[2, 1:, :, :]-gr[2, :-1, :, :]
+    #     res[0, :, :] += gr[2, 0, :, :]
+    #     res *= -1/np.sqrt(3)  # normalization
+    #     return res
+    
+    ####Parallel version
+    def _adj_reg0(self, res, gr, st, end):
+        res[st:end, :, 1:] = gr[0, st:end, :, 1:]-gr[0, st:end, :, :-1]
+        res[st:end, :, 0] = gr[0, st:end, :, 0]
+    
+    def _adj_reg1(self, res, gr, st, end):        
+        res[st:end, 1:, :] += gr[1, st:end, 1:, :]-gr[1, st:end, :-1, :]
+        res[st:end, 0, :] += gr[1, st:end, 0, :]
+    
+    def _adj_reg2(self, res, gr, st, end):                
+        end0 = min(gr.shape[1]-1,end)
+        res[1+st:1+end0, :, :] += gr[2, 1+st:1+end0, :, :]-gr[2, st:end0, :, :]        
+        res[1+st:1+end0] *= -1/np.sqrt(3)  # normalization
+        if st==0:
+            res[0, :, :] += gr[2, 0, :, :]
+            res[0, :, :] *= -1/np.sqrt(3)  # normalization
+    
+    def adj_reg(self, gr, nthreads=16):
         res = np.zeros(gr.shape[1:], dtype='complex64')
-        res[:, :, 1:] = gr[0, :, :, 1:]-gr[0, :, :, :-1]
-        res[:, :, 0] = gr[0, :, :, 0]
-        res[:, 1:, :] += gr[1, :, 1:, :]-gr[1, :, :-1, :]
-        res[:, 0, :] += gr[1, :, 0, :]
-        res[1:, :, :] += gr[2, 1:, :, :]-gr[2, :-1, :, :]
-        res[0, :, :] += gr[2, 0, :, :]
-        res *= -1/np.sqrt(3)  # normalization
+        nchunk = int(np.ceil(gr.shape[1]//nthreads))
+        mthreads = []
+        for fun in [self._adj_reg0,self._adj_reg1,self._adj_reg2]:
+            for k in range(nthreads):
+                th = Thread(target=fun,args=(res,gr,k*nchunk,min((k+1)*nchunk,gr.shape[1])))
+                mthreads.append(th)
+                th.start()
+            for k in range(nthreads):
+                th.join()
         return res
-
-
+    
+    @profile
     def solve_reg(self, u, lamd, rho, alpha):
         """ Regularizer problem"""
         z = self.fwd_reg(u)+lamd/rho
@@ -247,11 +300,12 @@ class FFTCL():
             z[:, za > alpha/rho]/(za[za > alpha/rho])
         return z
 
+    @profile    
     def update_penalty(self, psi, h, h0, rho):
         """Update rhofor a faster convergence"""
         # rho
-        r = cp.linalg.norm(psi - h)**2
-        s = cp.linalg.norm(rho*(h-h0))**2
+        r = np.linalg.norm(psi - h)**2
+        s = np.linalg.norm(rho*(h-h0))**2
         if (r > 10*s):
             rho *= 2
         elif (s > 10*r):
@@ -264,8 +318,8 @@ class FFTCL():
         # minimization functional
         def minf(Lu, gu):
             return np.linalg.norm(Lu-data)**2+rho*np.linalg.norm(gu-g)**2
-        u = init.copy()
-        
+        u = utils.copy(init)
+
         for i in range(titer):
             Lu = self.fwd_lam(u,theta, phi)
             gu = self.fwd_reg(u)
@@ -277,9 +331,10 @@ class FFTCL():
             else:
                 d = -grad+np.linalg.norm(grad)**2 / \
                     (np.sum(np.conj(d)*(grad-grad0))+1e-32)*d                
-            grad0 = grad.copy()
-            Ld = self.fwd_lam(d,theta, phi)
-            gd = self.fwd_reg(d)
+            
+            grad0 = utils.copy(grad)            
+            # Ld = self.fwd_lam(d,theta, phi)
+            # gd = self.fwd_reg(d)
             # line search
             gamma = 1
             # gamma = 0.5*self.line_search_ext(minf, 4, Lu, Ld,gu,gd)
@@ -299,7 +354,7 @@ class FFTCL():
             # keep previous iteration for penalty updates
             h0 = h.copy()
             # laminography problem
-            u = self.cg_lam_ext(data, psi-lamd/rho, u, theta, phi, rho, titer)            
+            u = self.cg_lam_ext(data, psi-lamd/rho, u, theta, phi, rho, titer, dbg)            
             # regularizer problem
             psi = self.solve_reg(u, lamd, rho, alpha)
             # h updates
@@ -315,7 +370,6 @@ class FFTCL():
                 print("%d/%d) rho=%.2e, Lagrangian terms:   %.2e %.2e %.2e %.2e, Sum: %.2e" %
                         (m, niter, rho, *lagr))
         return u
-
 
     def take_lagr(self, u, psi, data, h, lamd, theta, phi, alpha, rho):
         """ Lagrangian terms for monitoring convergence"""

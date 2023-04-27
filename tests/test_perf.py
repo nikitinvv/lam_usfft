@@ -1,5 +1,5 @@
 import numpy as np
-from ffttests.fftcl import FFTCL
+from lam_usfft.fftcl import FFTCL
 import dxchange
 import time
 
