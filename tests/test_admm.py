@@ -1,10 +1,9 @@
 import numpy as np
 from lam_usfft.fftcl import FFTCL
 import dxchange
-import time
 import scipy.ndimage as ndimage
 
-n = 256
+n = 1024
 n0 = n
 n1 = n
 n2 = n
@@ -12,14 +11,14 @@ detw = n
 deth = n
 ntheta = n
 
-n1c = n1//4
-dethc = deth//4
-nthetac = ntheta//4
+n1c = n1//8
+dethc = deth//8
+nthetac = ntheta//8
 phi = np.pi/2-30/180*np.pi
 theta = np.linspace(0, 2*np.pi, ntheta, endpoint=True).astype('float32')
 
-u = dxchange.read_tiff('delta-chip-256.tiff')[128-n0//2:128+n0//2,128-n1//2:128+n1//2,128-n2//2:128+n2//2].swapaxes(0,1).astype('complex64')
-# u = ndimage.zoom(u,n//256,order=1).astype('complex64')
+u = dxchange.read_tiff('delta-chip-256.tiff').swapaxes(0,1).astype('complex64')
+u = ndimage.zoom(u,n//256,order=1).astype('complex64')
 with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:    
     data = slv.fwd_lam(u, theta, phi)    
     

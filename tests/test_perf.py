@@ -1,9 +1,8 @@
 import numpy as np
 from lam_usfft.fftcl import FFTCL
-import dxchange
 import time
 
-n = 512
+n = 1024
 n0 = n
 n1 = n
 n2 = n

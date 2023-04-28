@@ -14,7 +14,7 @@ ntheta = n
 n1c = n1//4
 dethc = deth//4
 nthetac = ntheta//4
-phi = np.pi/2-30/180*np.pi
+phi = np.pi/2-30/180*np.pi# 30 deg w.r.t. the beam direction
 theta = np.linspace(0, 2*np.pi, ntheta, endpoint=True).astype('float32')
 
 with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
