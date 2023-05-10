@@ -4,7 +4,7 @@ import dxchange
 import time
 import scipy.ndimage as ndimage
 
-n = 1024
+n = 512
 n0 = n
 n1 = n
 n2 = n

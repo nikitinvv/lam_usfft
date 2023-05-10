@@ -3,13 +3,13 @@ from lam_usfft.fftcl import FFTCL
 import dxchange
 import scipy.ndimage as ndimage
 
-n = 1024
+n = 256
 n0 = n
 n1 = n
 n2 = n
 detw = n
 deth = n
-ntheta = n
+ntheta = 32
 
 n1c = n1//8
 dethc = deth//8
@@ -27,10 +27,10 @@ with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
     psi = np.zeros([3,*u.shape],dtype='complex64')
     h = np.zeros([3,*u.shape],dtype='complex64')    
     lamd = np.zeros([3,*u.shape],dtype='complex64')    
-    niter = 4
+    niter = 32
     liter = 4
     alpha = 3e-8
-    u = slv.admm(data, h, psi, lamd, u, theta, phi, alpha, liter, niter, dbg=False)
+    u = slv.admm(data, h, psi, lamd, u, theta, phi, alpha, liter, niter, dbg=True)
     
     dxchange.write_tiff(u.real, 'res/ure.tiff', overwrite=True)
     dxchange.write_tiff(u.imag, 'res/uim.tiff', overwrite=True)

@@ -142,7 +142,7 @@ class FFTCL():
             self.stream2.synchronize()
             self.stream3.synchronize()
             
-    @profile    
+    # @profile    
     def fwd_lam(self, u, theta, phi):
         
         utils.copy(u,self.pa0)
@@ -161,7 +161,7 @@ class FFTCL():
         
         return data
     
-    @profile
+    # @profile
     def adj_lam(self, data, theta, phi):
         
         utils.copy(data,self.pa3)
@@ -187,7 +187,7 @@ class FFTCL():
                 gamma = 0
                 break
         return gamma
-    @profile
+    # @profile
     def cg_lam(self, data, u, theta, phi, titer, dbg=False):
         """CG solver for ||Lu-data||_2"""
         
@@ -289,7 +289,7 @@ class FFTCL():
                 th.join()
         return res
     
-    @profile
+    # @profile
     def solve_reg(self, u, lamd, rho, alpha):
         """ Regularizer problem"""
         z = self.fwd_reg(u)+lamd/rho
@@ -300,7 +300,7 @@ class FFTCL():
             z[:, za > alpha/rho]/(za[za > alpha/rho])
         return z
 
-    @profile    
+    # @profile    
     def update_penalty(self, psi, h, h0, rho):
         """Update rhofor a faster convergence"""
         # rho
@@ -312,7 +312,7 @@ class FFTCL():
             rho *= 0.5
         return rho
     
-    @profile
+    # @profile
     def cg_lam_ext(self, data, g, init, theta, phi, rho, titer, dbg=True):
         """extended CG solver for ||Lu-data||_2+rho||gu-g||_2"""
         # minimization functional
@@ -346,7 +346,7 @@ class FFTCL():
                         (i, gamma, minf(Lu,gu)))
         return u
 
-    @profile
+    # @profile
     def admm(self, data, h, psi, lamd, u, theta, phi, alpha, titer, niter, dbg=False):
         """ ADMM for laminography problem with TV regularization"""
         rho = 0.5
