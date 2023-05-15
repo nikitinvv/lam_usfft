@@ -9,7 +9,7 @@ n1 = n
 n2 = n
 detw = n
 deth = n
-ntheta = 32
+ntheta = 128
 
 n1c = n1//8
 dethc = deth//8
@@ -27,10 +27,10 @@ with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
     psi = np.zeros([3,*u.shape],dtype='complex64')
     h = np.zeros([3,*u.shape],dtype='complex64')    
     lamd = np.zeros([3,*u.shape],dtype='complex64')    
-    niter = 32
+    niter = 33
     liter = 4
-    alpha = 3e-8
-    u = slv.admm(data, h, psi, lamd, u, theta, phi, alpha, liter, niter, dbg=True)
+    alpha = 2e-8
+    u = slv.admm(data, h, psi, lamd, u, theta, phi, alpha, liter, niter, dbg=True,dbg_step=4)
     
     dxchange.write_tiff(u.real, 'res/ure.tiff', overwrite=True)
     dxchange.write_tiff(u.imag, 'res/uim.tiff', overwrite=True)

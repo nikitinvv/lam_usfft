@@ -4,7 +4,7 @@ import dxchange
 import time
 import scipy.ndimage as ndimage
 
-n = 512
+n = 256
 n0 = n
 n1 = n
 n2 = n
@@ -24,7 +24,7 @@ with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
     data = slv.fwd_lam(u, theta, phi)    
     
     u = np.zeros(u.shape,dtype='complex64')
-    u = slv.cg_lam(data, u, theta, phi, 4,dbg=True)
+    u = slv.cg_lam(data, u, theta, phi, 64,dbg=True,dbg_step=8)
     
     dxchange.write_tiff(u.real, 'res/ure.tiff', overwrite=True)
     dxchange.write_tiff(u.imag, 'res/uim.tiff', overwrite=True)

@@ -20,37 +20,6 @@ def signal_handler(sig, frame):
 
     print('Abort')
     os.system('kill -9 $PPID')
-    
-class WRThread():
-    def __init__(self):
-        self.thread = None
-
-    def run(self, fun, args):
-        self.thread = Thread(target=fun, args=args)
-        self.thread.start()
-
-    def is_alive(self):
-        if self.thread == None:
-            return False
-        return self.thread.is_alive()
-
-    def join(self):
-        if self.thread == None:
-            return
-        self.thread.join()
-
-
-def find_free_thread(threads):
-    ithread = 0
-    while True:
-        if not threads[ithread].is_alive():
-            break
-        ithread = ithread+1
-        # ithread=(ithread+1)%len(threads)
-        if ithread == len(threads):
-            ithread = 0
-            time.sleep(0.01)
-    return ithread
 
 def write_array(res,res0,st,end):             
     res[:,st:end] = res0[:,:end-st]
@@ -70,7 +39,7 @@ def copy(u, res=[], nthreads=8):
         th = Thread(target=_copy,args=(res,u,k*nchunk,min((k+1)*nchunk,u.shape[0])))
         mthreads.append(th)
         th.start()
-    for k in range(nthreads):
+    for th in mthreads:
         th.join()
     return res
     
