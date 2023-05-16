@@ -45,18 +45,16 @@ class FFTCL():
         self.pab0 = utils.pinned_array(np.empty(pinned_block_size,dtype='complex64'))
         self.pab1 = utils.pinned_array(np.empty(pinned_block_size,dtype='complex64'))
         self.pab2 = utils.pinned_array(np.empty(pinned_block_size,dtype='complex64'))
-        self.pab3 = utils.pinned_array(np.empty(pinned_block_size,dtype='complex64'))
         # pointers (no memory allocation)
         self.pa0 =  self.pab0[:self.n1*self.n0*self.n2].reshape(self.n1, self.n0, self.n2)
         self.pa1 =  self.pab1[:self.n1*self.deth*self.n2].reshape(self.n1,self.deth,self.n2)
         self.pa2 =  self.pab0[:self.ntheta*self.deth*self.detw].reshape(self.ntheta,self.deth,self.detw)
-        self.pa3 =  self.pab1[:self.ntheta*self.deth*self.detw].reshape(self.ntheta,self.deth,self.detw)
         
         # reusable gpu memory blocks
         self.gb0 = cp.empty(2*gpu_block_size,dtype='complex64')
         self.gb1 = cp.empty(2*gpu_block_size,dtype='complex64')
         self.gb2 = cp.empty(2*gpu_block_size,dtype='complex64')
-        self.gb3 = cp.empty(2*gpu_block_size,dtype='complex64')
+        
         # pointers (no memory allocation)
         self.ga0 = self.gb0[:2*self.n1c*self.n0*self.n2].reshape(2,self.n1c,self.n0,self.n2)
         self.ga1 = self.gb1[:2*self.n1c*self.deth*self.n2].reshape(2,self.n1c,self.deth,self.n2)
@@ -69,8 +67,6 @@ class FFTCL():
         self.stream1 = cp.cuda.Stream(non_blocking=False)
         self.stream2 = cp.cuda.Stream(non_blocking=False)
         self.stream3 = cp.cuda.Stream(non_blocking=False)
-        
-        
         
     def __enter__(self):
         """Return self at start of a with-block."""
@@ -201,50 +197,12 @@ class FFTCL():
             th.join()
         
         return out
-                
-    # def linear_operation(self,x,y,a,b,chunk,out=None):
-    #     """ out = ax+by"""
-    #     # chunk shape
-    #     xcshape = [chunk,*x.shape[1:]]
-        
-    #     # init references
-    #     pa0 = self.pab0[:np.prod(x.shape)].reshape(x.shape)
-    #     pa1 = self.pab1[:np.prod(x.shape)].reshape(x.shape)
-    #     ga0 = self.gb0[:2*np.prod(xcshape)].reshape(2,*xcshape)
-    #     ga1 = self.gb1[:2*np.prod(xcshape)].reshape(2,*xcshape)
-        
-    #     #copy to pinned memory
-    #     utils.copy(x,pa0)
-    #     utils.copy(y,pa1)
-
-    #     # async proecessing                
-    #     nchunk = x.shape[0]//chunk
-    #     for k in range(nchunk+2):
-    #         if(k > 0 and k < nchunk+1):
-    #             with self.stream2:
-    #                 #y = ax+by
-    #                 ga1[(k-1)%2] = a*ga0[(k-1)%2]+b*ga1[(k-1)%2]                    
-    #         if(k > 1):
-    #             with self.stream3:  # gpu->cpu copy        
-    #                 ga1[(k-2)%2].get(out=pa1[(k-2)*chunk:(k-1)*chunk])# contiguous copy, fast                                                            
-    #         if(k<nchunk):
-    #             with self.stream1:  # cpu->gpu copy
-    #                 ga0[k%2].set(pa0[k*chunk:(k+1)*chunk])# contiguous copy, fast
-    #                 ga1[k%2].set(pa1[k*chunk:(k+1)*chunk])# contiguous copy, fast                    
-                    
-    #         self.stream1.synchronize()
-    #         self.stream2.synchronize()
-    #         self.stream3.synchronize()
-        
-    #     if out is None:
-    #         return utils.copy(pa1)
-    #     else:
-    #         out[:] = utils.copy(pa1)
-    
+          
     def dai_yuan(self,grad,grad0,d):
         #alpha = np.linalg.norm(grad)**2 / \
                     #(np.sum(np.conj(d)*(grad-grad0))+1e-32)     
 
+        # take parts of preallocated memory
         pa0 = self.pab0[:self.n1*self.n0*self.n2].reshape(self.n1,self.n0,self.n2)
         pa1 = self.pab1[:self.n1*self.n0*self.n2].reshape(self.n1,self.n0,self.n2)
         pa2 = self.pab2[:self.n1*self.n0*self.n2].reshape(self.n1,self.n0,self.n2)
@@ -277,8 +235,8 @@ class FFTCL():
             if(k<nchunk):
                 with self.stream1:  # cpu->gpu copy
                     ga0[k%2].set(pa0[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast
-                    ga1[k%2].set(pa1[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast
-                    ga2[k%2].set(pa2[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast
+                    ga1[k%2].set(pa1[k*self.n1c:(k+1)*self.n1c])
+                    ga2[k%2].set(pa2[k*self.n1c:(k+1)*self.n1c])
 
                     
             self.stream1.synchronize()
@@ -286,8 +244,7 @@ class FFTCL():
         
         alpha = dividend/(divisor+1e-32)                
         
-        return alpha
-                    
+        return alpha                    
                     
     ##FUNCTIONS FOR ITERATIVE SCHEMES        
     def line_search(self, minf, gamma, Lu, Ld):
@@ -358,53 +315,8 @@ class FFTCL():
     #     res[1, :, :-1, :] = u[:, 1:, :]-u[:, :-1, :]
     #     res[2, :-1, :, :] = u[1:, :, :]-u[:-1, :, :]
     #     res*=1/np.sqrt(3)
-    #     return res
-    # def fwd_reg(self,u):
-    #     """forwasrd regularization"""
-    #     # chunk shape
-        
-    #     #copy to pinned memory
-    #     pa0 = self.pab0[:self.n1*self.n0*self.n2].reshape(self.n1,self.n0,self.n2)
-    #     pa1 = self.pab1[:self.n1*self.n0*self.n2].reshape(self.n1,self.n0,self.n2)
-    #     pa2 = self.pab2[:self.n1*self.n0*self.n2].reshape(self.n1,self.n0,self.n2)
-    #     pa3 = self.pab3[:self.n1*self.n0*self.n2].reshape(self.n1,self.n0,self.n2)
-    #     ga0 = self.gb0[:2*self.n1c*self.n0*self.n2].reshape(2,self.n1c,self.n0,self.n2)
-    #     ga1 = self.gb1[:2*self.n1c*self.n0*self.n2].reshape(2,self.n1c,self.n0,self.n2)
-    #     ga2 = self.gb2[:2*self.n1c*self.n0*self.n2].reshape(2,self.n1c,self.n0,self.n2)
-    #     ga3 = self.gb3[:2*self.n1c*self.n0*self.n2].reshape(2,self.n1c,self.n0,self.n2)
+    #     return res   
 
-    #     utils.copy(u,pa0)
-        
-        
-    #     # async proecessing                
-    #     nchunk = self.n1//self.n1c
-    #     for k in range(nchunk+2):
-    #         if(k > 0 and k < nchunk+1):
-    #             with self.stream2:
-    #                 ga1[(k-1)%2][:, :, :-1] = ga0[(k-1)%2][:, :, 1:]-ga0[(k-1)%2][:, :, :-1]                    
-    #                 ga2[(k-1)%2][:, :-1, :] = ga0[(k-1)%2][:, 1:, :]-ga0[(k-1)%2][:, :-1, :]                    
-    #                 ga3[(k-1)%2][:-1, :, :] = ga0[(k-1)%2][1:, :, :]-ga0[(k-1)%2][:-1, :, :]                    
-    #         if(k > 1):
-    #             with self.stream3:  # gpu->cpu copy        
-    #                 ga1[(k-2)%2].get(out=pa1[(k-2)*self.n1c:(k-1)*self.n1c])# contiguous copy, fast                                                            
-    #                 ga2[(k-2)%2].get(out=pa2[(k-2)*self.n1c:(k-1)*self.n1c])# contiguous copy, fast                                                            
-    #                 ga3[(k-2)%2].get(out=pa3[(k-2)*self.n1c:(k-1)*self.n1c])# contiguous copy, fast                                                            
-    #         if(k<nchunk):
-    #             with self.stream1:  # cpu->gpu copy
-    #                 ga0[k%2].set(pa0[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast                    
-                    
-    #         self.stream1.synchronize()
-    #         self.stream2.synchronize()
-    #         self.stream3.synchronize()
-        
-    #     res = np.zeros([3, *u.shape], dtype='complex64')
-        
-    #     utils.copy(pa1,res[0])
-    #     utils.copy(pa2,res[1])
-    #     utils.copy(pa3,res[2])
-    #     return res
-
-    ##########Parallel version
     def _fwd_reg(self, res, u, st, end):                
         res[0, st:end, :, :-1] = u[st:end, :, 1:]-u[st:end, :, :-1]
         res[1, st:end, :-1, :] = u[st:end, 1:, :]-u[st:end, :-1, :]
