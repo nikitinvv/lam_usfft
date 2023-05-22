@@ -33,7 +33,7 @@ def _copy(res, u, st, end):
 def copy(u, res=[], nthreads=8):
     if res==[]:
         res = np.empty_like(u)
-    nchunk = int(np.ceil(u.shape[0]//nthreads))
+    nchunk = int(np.ceil(u.shape[0]/nthreads))
     mthreads = []
     for k in range(nthreads):
         th = Thread(target=_copy,args=(res,u,k*nchunk,min((k+1)*nchunk,u.shape[0])))

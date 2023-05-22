@@ -49,6 +49,7 @@ class FFTCL():
         self.pa0 =  self.pab0[:self.n1*self.n0*self.n2].reshape(self.n1, self.n0, self.n2)
         self.pa1 =  self.pab1[:self.n1*self.deth*self.n2].reshape(self.n1,self.deth,self.n2)
         self.pa2 =  self.pab0[:self.ntheta*self.deth*self.detw].reshape(self.ntheta,self.deth,self.detw)
+        self.pa3 =  self.pab1[:self.ntheta*self.deth*self.detw].reshape(self.ntheta,self.deth,self.detw)
         
         # reusable gpu memory blocks
         self.gb0 = cp.empty(2*gpu_block_size,dtype='complex64')
@@ -79,7 +80,9 @@ class FFTCL():
 
     # @profile
     def usfft1d_chunks(self, out_t, inp_t, out_gpu, inp_gpu, phi, direction='fwd'):               
-        nchunk = self.n1//self.n1c
+        # nchunk = self.n1//self.n1c
+        nchunk = int(np.ceil(self.n1/self.n1c))
+        
         for k in range(nchunk+2):
             if(k > 0 and k < nchunk+1):
                 with self.stream2:
@@ -89,10 +92,14 @@ class FFTCL():
                         self.cl_usfft1d.adj(out_gpu[(k-1)%2].data.ptr, inp_gpu[(k-1)%2].data.ptr, phi, self.stream2.ptr)
             if(k > 1):
                 with self.stream3:  # gpu->cpu copy
-                    out_gpu[(k-2)%2].get(out=out_t[(k-2)*self.n1c:(k-1)*self.n1c])# contiguous copy, fast                            
+                    st, end = (k-2)*self.n1c, min(self.n1,(k-1)*self.n1c)
+                    s = end-st
+                    out_gpu[(k-2)%2,:s].get(out=out_t[st:end])# contiguous copy, fast                            
             if(k<nchunk):
                 with self.stream1:  # cpu->gpu copy
-                    inp_gpu[k%2].set(inp_t[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast
+                    st, end = k*self.n1c, min(self.n1,(k+1)*self.n1c)
+                    s = end-st
+                    inp_gpu[k%2,:s].set(inp_t[st:end])# contiguous copy, fast
             self.stream1.synchronize()
             self.stream2.synchronize()
             self.stream3.synchronize()
@@ -100,7 +107,8 @@ class FFTCL():
     # @profile
     def usfft2d_chunks(self, out, inp, out_gpu, inp_gpu, theta, phi, direction='fwd'):
         theta = cp.array(theta)        
-        nchunk = self.deth//self.dethc
+        # nchunk = self.deth//self.dethc
+        nchunk = int(np.ceil(self.deth/self.dethc))
         
         for k in range(nchunk+2):            
             if(k > 0 and k < nchunk+1):
@@ -112,18 +120,24 @@ class FFTCL():
             if(k > 1):
                 with self.stream3:  # gpu->cpu copy
                     for j in range(out.shape[0]):# non-contiguous copy, slow but comparable with gpu computations
-                        out_gpu[(k-2)%2,j].get(out=out[j,(k-2)*self.dethc:(k-1)*self.dethc])                    
+                        st, end = (k-2)*self.dethc, min(self.deth,(k-1)*self.dethc)
+                        s = end-st
+                        out_gpu[(k-2)%2,j,:s].get(out=out[j,st:end])   
             if(k<nchunk):
                 with self.stream1:  # cpu->gpu copy           
                     for j in range(inp.shape[0]):
-                        inp_gpu[k%2,j].set(inp[j,k*self.dethc:(k+1)*self.dethc])# non-contiguous copy, slow but comparable with gpu computations)
+                        st, end = k*self.dethc, min(self.deth,(k+1)*self.dethc)
+                        s = end-st
+                        inp_gpu[k%2,j,:s].set(inp[j,st:end])# non-contiguous copy, slow but comparable with gpu computations)                    
                         
             self.stream1.synchronize()
             self.stream2.synchronize()
             self.stream3.synchronize()                                    
             
     def fft2_chunks(self, out, inp, out_gpu, inp_gpu, direction='fwd'):
-        nchunk = self.ntheta//self.nthetac
+        # nchunk = self.ntheta//self.nthetac
+        # print(np.linalg.norm(inp[-1]))
+        nchunk = int(np.ceil(self.ntheta/self.nthetac))
         for k in range(nchunk+2):
             if(k > 0 and k < nchunk+1):
                 with self.stream2:
@@ -133,10 +147,15 @@ class FFTCL():
                         self.cl_fft2d.adj(out_gpu[(k-1)%2].data.ptr,inp_gpu[(k-1)%2].data.ptr,self.stream2.ptr)
             if(k > 1):
                 with self.stream3:  # gpu->cpu copy        
-                    out_gpu[(k-2)%2].get(out=out[(k-2)*self.nthetac:(k-1)*self.nthetac])# contiguous copy, fast                                        
+                    st, end = (k-2)*self.nthetac, min(self.ntheta,(k-1)*self.nthetac)
+                    s = end-st
+                    out_gpu[(k-2)%2, :s].get(out=out[st:end])# contiguous copy, fast                                        
+                    
             if(k<nchunk):
                 with self.stream1:  # cpu->gpu copy
-                    inp_gpu[k%2].set(inp[k*self.nthetac:(k+1)*self.nthetac])# contiguous copy, fast
+                    st, end = k*self.nthetac, min(self.ntheta,(k+1)*self.nthetac)
+                    s = end-st
+                    inp_gpu[k%2, :s].set(inp[st:end])# contiguous copy, fast
                     
             self.stream1.synchronize()
             self.stream2.synchronize()
@@ -156,7 +175,6 @@ class FFTCL():
         # step 3: 2d batch fft in [det x,det y] direction
         # input [self.ntheta, self.deth, self.detw], output [self.ntheta, self.deth, self.detw]        
         self.fft2_chunks(self.pa3, self.pa2, self.ga5, self.ga4, direction='adj')
-
         data = utils.copy(self.pa3)
         
         return data
@@ -183,14 +201,16 @@ class FFTCL():
         if out is None:
             out = np.empty_like(x)
         mthreads = []
-        nchunk = x.shape[axis]//nthreads
+        # nchunk = x.shape[axis]//nthreads
+        nchunk = int(np.ceil(x.shape[axis]/nthreads))
+        
         if axis==0:
             fun = self._linear_operation_axis0
         elif axis==1:
             fun = self._linear_operation_axis1
         for k in range(nthreads):
             
-            th = Thread(target=fun,args=(out,x,y,a,b,k*nchunk,(k+1)*nchunk))
+            th = Thread(target=fun,args=(out,x,y,a,b,k*nchunk,min(x.shape[axis],(k+1)*nchunk)))
             mthreads.append(th)
             th.start()
         for th in mthreads:
@@ -215,14 +235,18 @@ class FFTCL():
         utils.copy(d,pa2)
 
         dividend = 0
-        nchunk = self.n1//self.n1c
+        # nchunk = self.n1//self.n1c
+        nchunk = int(np.ceil(self.n1/self.n1c))
+        
         for k in range(nchunk+2):
             if(k > 0 and k < nchunk+1):
                 with self.stream2:
                     dividend += cp.sum(ga0[(k-1)%2]*cp.conj(ga0[(k-1)%2]))
             if(k<nchunk):
                 with self.stream1:  # cpu->gpu copy
-                    ga0[k%2].set(pa0[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast
+                    st, end = k*self.n1c, min(self.n1,(k+1)*self.n1c)
+                    s = end-st
+                    ga0[k%2,:s].set(pa0[st:end])# contiguous copy, fast
                     
             self.stream1.synchronize()
             self.stream2.synchronize()
@@ -234,9 +258,11 @@ class FFTCL():
                     divisor += cp.sum(cp.conj(ga2[(k-1)%2])*(ga0[(k-1)%2]-ga1[(k-1)%2]))
             if(k<nchunk):
                 with self.stream1:  # cpu->gpu copy
-                    ga0[k%2].set(pa0[k*self.n1c:(k+1)*self.n1c])# contiguous copy, fast
-                    ga1[k%2].set(pa1[k*self.n1c:(k+1)*self.n1c])
-                    ga2[k%2].set(pa2[k*self.n1c:(k+1)*self.n1c])
+                    st, end = k*self.n1c, min(self.n1,(k+1)*self.n1c)
+                    s = end-st
+                    ga0[k%2,:s].set(pa0[st:end])# contiguous copy, fast
+                    ga1[k%2,:s].set(pa1[st:end])
+                    ga2[k%2,:s].set(pa2[st:end])
 
                     
             self.stream1.synchronize()
@@ -327,7 +353,7 @@ class FFTCL():
     def fwd_reg(self, u, nthreads=16):
         ##Fast version:
         res = np.zeros([3, *u.shape], dtype='complex64')
-        nchunk = int(np.ceil(u.shape[0]//nthreads))
+        nchunk = int(np.ceil(u.shape[0]/nthreads))
         mthreads = []
         for k in range(nthreads):
             th = Thread(target=self._fwd_reg,args=(res,u,k*nchunk,min((k+1)*nchunk,u.shape[0])))
@@ -370,7 +396,7 @@ class FFTCL():
     def adj_reg(self, gr, nthreads=16):
         ##Fast version:
         res = np.zeros(gr.shape[1:], dtype='complex64')
-        nchunk = int(np.ceil(gr.shape[1]//nthreads))
+        nchunk = int(np.ceil(gr.shape[1]/nthreads))
         mthreads = []
         for fun in [self._adj_reg0,self._adj_reg1,self._adj_reg2]:
             for k in range(nthreads):
@@ -390,10 +416,11 @@ class FFTCL():
         
     def soft_thresholding(self,z,alpha,rho,nthreads=16):
         
-        nchunk = self.n1//nthreads
+        # nchunk = self.n1//nthreads
+        nchunk = int(np.ceil(self.n1/nthreads))
         mthreads = []
         for k in range(nthreads):
-            th = Thread(target=self._soft_thresholding,args=(z,alpha,rho,k*nchunk,(k+1)*nchunk))
+            th = Thread(target=self._soft_thresholding,args=(z,alpha,rho,k*nchunk,min(self.n1,(k+1)*nchunk)))
             mthreads.append(th)
             th.start()
         for th in mthreads:
@@ -432,10 +459,12 @@ class FFTCL():
         rres = np.zeros(nthreads,dtype='float64')
         sres = np.zeros(nthreads,dtype='float64')
         mthreads = []
-        nchunk = self.n1//nthreads
+        # nchunk = self.n1//nthreads
+        nchunk = int(np.ceil(self.n1/nthreads))
+        
         for j in range(3):
             for k in range(nthreads):
-                th = Thread(target=self._update_penalty,args=(rres,sres,psi[j], h[j],h0[j],rho,k*nchunk,(k+1)*nchunk,k))
+                th = Thread(target=self._update_penalty,args=(rres,sres,psi[j], h[j],h0[j],rho,k*nchunk,min(self.n1,(k+1)*nchunk),k))
                 th.start()
                 mthreads.append(th)
             for th in mthreads:
@@ -463,9 +492,10 @@ class FFTCL():
     def dai_yuan_alpha(self,grad,grad0,d,nthreads=16):        
         res = np.zeros(nthreads,dtype='complex64')
         mthreads = []
-        nchunk = grad.shape[0]//nthreads
+        # nchunk = grad.shape[0]//nthreads
+        nchunk = int(np.ceil(grad.shape[0]/nthreads))
         for k in range(nthreads):
-            th = Thread(target=self._dai_yuan_dividend,args=(res,grad,k*nchunk,(k+1)*nchunk,k))
+            th = Thread(target=self._dai_yuan_dividend,args=(res,grad,k*nchunk,min(grad.shape[0],(k+1)*nchunk),k))
             th.start()
             mthreads.append(th)
         
@@ -475,7 +505,7 @@ class FFTCL():
         
         mthreads = []
         for k in range(nthreads):
-            th = Thread(target=self._dai_yuan_divisor,args=(res,grad,grad0,d,k*nchunk,(k+1)*nchunk,k))
+            th = Thread(target=self._dai_yuan_divisor,args=(res,grad,grad0,d,k*nchunk,min(grad.shape[0],(k+1)*nchunk),k))
             th.start()
             mthreads.append(th)
         
