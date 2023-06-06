@@ -42,4 +42,21 @@ def copy(u, res=[], nthreads=8):
     for th in mthreads:
         th.join()
     return res
-    
+
+def paddata(data, ne):
+    """Pad tomography projections"""
+    n = data.shape[-1]
+    datae = np.pad(data, ((0, 0), (0, 0), (ne//2-n//2, ne//2-n//2)), 'edge')
+    return datae
+
+
+def unpaddata(data, n):
+    """Unpad tomography projections"""
+    ne = data.shape[-1]
+    return data[:, :, ne//2-n//2:ne//2+n//2]
+
+
+def unpadobject(f, n):
+    """Unpad 3d object"""
+    ne = f.shape[-1]
+    return f[:, ne//2-n//2:ne//2+n//2, ne//2-n//2:ne//2+n//2]    
