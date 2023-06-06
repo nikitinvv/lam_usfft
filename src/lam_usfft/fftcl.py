@@ -288,7 +288,7 @@ class FFTCL():
                 break
         return gamma
     
-    def cg_lam(self, data, u, theta, phi, titer, dbg=False,dbg_step=1):
+    def cg_lam(self, data, u, theta, phi, titer,gamma=1, dbg=False,dbg_step=1):
         """CG solver for ||Lu-data||_2"""
         
         # minimization functional
@@ -320,7 +320,7 @@ class FFTCL():
             # Ld = self.fwd_lam(d,theta, phi)
             # gd = self.fwd_reg(d)            
             # gamma = 0.5*self.line_search_ext(minf, 4, Lu, Ld,gu,gd)
-            gamma = 1# seems gamma=1 works nicely, no need to do line search
+            #gamma = gamma# seems gamma=1 works nicely, no need to do line search
             # update step
             ##Slow version:
             # u = u + gamma*d
@@ -515,7 +515,7 @@ class FFTCL():
         return dividend/(divisor+1e-32)
         
     # @profile
-    def cg_lam_ext(self, data, g, init, theta, phi, rho, titer, dbg=False, dbg_step=1):
+    def cg_lam_ext(self, data, g, init, theta, phi, rho, titer, gamma=1, dbg=False, dbg_step=1):
         """extended CG solver for ||Lu-data||_2+rho||gu-g||_2"""
         # minimization functional
         def minf(Lu, gu):
@@ -554,7 +554,7 @@ class FFTCL():
             # Ld = self.fwd_lam(d,theta, phi)
             # gd = self.fwd_reg(d)            
             # gamma = 0.5*self.line_search_ext(minf, 4, Lu, Ld,gu,gd)
-            gamma = 1# seems gamma=1 works nicely, no need to do line search
+            # gamma = 1# seems gamma=1 works nicely, no need to do line search
             # update step
             ##Slow version:
             # u = u + gamma*d
@@ -569,14 +569,14 @@ class FFTCL():
         return u
 
     # @profile
-    def admm(self, data, h, psi, lamd, u, theta, phi, alpha, titer, niter, dbg=False, dbg_step=1):
+    def admm(self, data, h, psi, lamd, u, theta, phi, alpha, titer, niter, gamma=1, dbg=False, dbg_step=1):
         """ ADMM for laminography problem with TV regularization"""
         rho = 0.5
         for m in range(niter):
             # keep previous iteration for penalty updates
             h0 = utils.copy(h)
             # laminography problem
-            u = self.cg_lam_ext(data, psi-lamd/rho, u, theta, phi, rho, titer, False)            
+            u = self.cg_lam_ext(data, psi-lamd/rho, u, theta, phi, rho, titer, gamma, False)            
             # regularizer problem
             psi = self.solve_reg(u, lamd, rho, alpha)
             # h updates
