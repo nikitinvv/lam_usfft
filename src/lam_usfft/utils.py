@@ -30,8 +30,8 @@ def read_array(res0,res,st,end):
 def _copy(res, u, st, end):
     res[st:end] = u[st:end]
     
-def copy(u, res=[], nthreads=8):
-    if res==[]:
+def copy(u, res=None, nthreads=8):
+    if res is None:
         res = np.empty_like(u)
     nchunk = int(np.ceil(u.shape[0]/nthreads))
     mthreads = []

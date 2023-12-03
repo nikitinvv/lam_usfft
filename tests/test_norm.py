@@ -1,7 +1,6 @@
 import numpy as np
 from lam_usfft.fftcl import FFTCL
 import dxchange
-import time
 
 n = 128
 n0 = n
@@ -18,8 +17,7 @@ phi = np.pi/2-20/180*np.pi
 theta = np.linspace(0, 2*np.pi, ntheta, endpoint=True).astype('float32')
 
 with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
-    f = dxchange.read_tiff('delta-chip-256.tiff')[128-n0//2:128+n0//2,128-n1//2:128+n1//2,128-n2//2:128+n2//2].swapaxes(0,1)# shape [n1,n0,n2] is more optimal for computations
-    
+    f = dxchange.read_tiff('delta-chip-256.tiff')[128-n0//2:128+n0//2,128-n1//2:128+n1//2,128-n2//2:128+n2//2].swapaxes(0,1)# shape [n1,n0,n2] is more optimal for computations    
     data = slv.fwd_lam(f, theta, phi)
     fr = slv.adj_lam(data, theta, phi)
     ddata = slv.fwd_lam(fr, theta, phi)

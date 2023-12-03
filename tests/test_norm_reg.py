@@ -28,5 +28,4 @@ with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
     
     print(np.sum(data*np.conj(ddata))/np.sum(ddata*np.conj(ddata)))    
     print(np.sum(f*np.conj(fr))/np.sum(fr*np.conj(fr)))    
-    # 
-    # print(np.linalg.norm(data))
+    

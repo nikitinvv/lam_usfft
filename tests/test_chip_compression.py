@@ -25,19 +25,9 @@ with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
     f = f-1j*0.5*f
     f = np.ascontiguousarray(f)+np.random.random(f.shape).astype('complex64')+1j*np.random.random(f.shape).astype('complex64')
     fc = zlib.compress(f)
-    print(sys. getsizeof(f))
-    print(sys. getsizeof(fc))
+    print(f'compression {sys.getsizeof(fc)/sys.getsizeof(f)}')
     f1 = zlib.decompress(fc)
     f1 = np.frombuffer(f1, dtype=np.complex64).reshape(f.shape)
     print(np.linalg.norm(f-f1))
     
-    exit()
-
-    data = slv.fwd_lam(f, theta, phi)
-    fr = slv.adj_lam(data, theta, phi)
     
-    print(np.sum(f*np.conj(fr)),np.sum(data*np.conj(data)))    
-    dxchange.write_tiff(data.real, 'res/datare.tiff', overwrite=True)
-    dxchange.write_tiff(data.imag, 'res/dataim.tiff', overwrite=True)
-    
-    print(np.linalg.norm(data))

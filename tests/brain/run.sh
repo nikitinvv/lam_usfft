@@ -1,0 +1,1 @@
+tomocupy recon --file-name /data/2023-04-Nikitin/brain_lam_20deg_middle_421.h5 --reconstruction-type full --rotation-axis 1621.5 --center-search-width 5 --center-search-step 0.5 --lamino-angle 20
