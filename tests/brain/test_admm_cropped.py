@@ -30,12 +30,12 @@ theta = np.linspace(0, 2*np.pi, ntheta, endpoint=False).astype('float32')
 
 
 with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:    
-    u = np.zeros([n1,n0,n2],dtype='float32')
-    u = slv.cg_lam(data, u, theta, phi, 64, gamma=2,dbg=True,dbg_step=4)
-    u = u.swapaxes(0,1)
-    u = u[:,u.shape[1]//6:-u.shape[1]//6,u.shape[1]//6:-u.shape[1]//6]
-    dxchange.write_tiff_stack(u, f'{rec_folder}/u.tiff', overwrite=True)
-    exit()
+    # u = np.zeros([n1,n0,n2],dtype='float32')
+    # u = slv.cg_lam(data, u, theta, phi, 64, gamma=2,dbg=True,dbg_step=4)
+    # u = u.swapaxes(0,1)
+    # u = u[:,u.shape[1]//6:-u.shape[1]//6,u.shape[1]//6:-u.shape[1]//6]
+    # dxchange.write_tiff_stack(u, f'{rec_folder}/u.tiff', overwrite=True)
+    # exit()
     u = np.zeros([n1,n0,n2],dtype='float32')#reshaped        
     psi = np.zeros([3,*u.shape],dtype='float32')
     h = np.zeros([3,*u.shape],dtype='float32')    
@@ -45,7 +45,7 @@ with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
     liter = 4
     alpha = float(sys.argv[2])
     
-    u = slv.admm(data, h, psi, lamd, u, theta, phi, alpha, liter, niter, dbg=True,dbg_step=4,rec_folder=rec_folder)
+    u = slv.admm(data, h, psi, lamd, u, theta, phi, alpha, liter, niter, dbg=False,dbg_step=4,rec_folder=rec_folder)
     u = u.swapaxes(0,1)
     u = u[:,u.shape[1]//6:-u.shape[1]//6,u.shape[1]//6:-u.shape[1]//6]
     print(np.linalg.norm(u))

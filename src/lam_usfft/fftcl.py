@@ -238,7 +238,7 @@ class FFTCL():
             self.stream1.synchronize()
             self.stream2.synchronize()
                  
-    def fwd_lam(self, u, theta, phi):        
+    def fwd_lam(self, u, theta, phi, res=None):        
         utils.copy(u,self.pa00)        
         self.usfft1d_chunks(self.pa11,self.pa00,self.ga11,self.ga00,self.gpa11,self.gpa00, phi, 'fwd')         
         # c1r = dxchange.read_tiff('/home/beams/TOMO/vnikitin/lam_usfft/tests/res/c1r.tiff')
@@ -256,11 +256,13 @@ class FFTCL():
         # c3r = dxchange.read_tiff('/home/beams/TOMO/vnikitin/lam_usfft/tests/res/c3r.tiff')
         # print(np.linalg.norm(c3r-self.pa33),np.linalg.norm(c3r))
                 
-        data = utils.copy(self.pa33)
+        if res is None:
+            res = np.empty_like(self.pa33)
+        utils.copy(self.pa33,res)
         
-        return data
+        return res
     
-    def adj_lam(self, data, theta, phi):        
+    def adj_lam(self, data, theta, phi, res=None):        
         utils.copy(data,self.pa33)
         self.fft2_chunks(self.pa22, self.pa33, self.ga44, self.ga55,self.gpa44, self.gpa55, 'fwd')   
         # c3r = dxchange.read_tiff('/home/beams/TOMO/vnikitin/lam_usfft/tests/res/a3r.tiff')
@@ -279,8 +281,10 @@ class FFTCL():
                 
         # print(np.linalg.norm(a1r-self.pa00.real),np.linalg.norm(a1r))
         
-        u = utils.copy(self.pa00)
-        return u
+        if res is None:
+            res = np.empty_like(self.pa00)
+        utils.copy(self.pa00,res)
+        return res
     
     def _linear_operation_axis0(self,out,x,y,a,b,st,end):
         out[st:end] = a*x[st:end]+b*y[st:end]        
@@ -442,9 +446,10 @@ class FFTCL():
         res[2, st:end0, :, :] = u[1+st:1+end0, :, :]-u[st:end0, :, :]
         res[:,st:end] *=1/np.sqrt(3)
     
-    def fwd_reg(self, u, nthreads=16):
+    def fwd_reg(self, u, res=None, nthreads=16):
         ##Fast version:
-        res = np.zeros([3, *u.shape], dtype='float32')
+        if res is None:
+            res = np.zeros([3, *u.shape], dtype='float32')
         nchunk = int(np.ceil(u.shape[0]/nthreads))
         mthreads = []
         for k in range(nthreads):
@@ -485,9 +490,10 @@ class FFTCL():
             res[0, :, :] += gr[2, 0, :, :]
             res[0, :, :] *= -1/np.sqrt(3)  # normalization
     
-    def adj_reg(self, gr, nthreads=16):
+    def adj_reg(self, gr, res=None, nthreads=16):
         ##Fast version:
-        res = np.zeros(gr.shape[1:], dtype='float32')
+        if res is None:
+            res = np.zeros(gr.shape[1:], dtype='float32')
         nchunk = int(np.ceil(gr.shape[1]/nthreads))
         mthreads = []
         for fun in [self._adj_reg0,self._adj_reg1,self._adj_reg2]:
@@ -516,11 +522,10 @@ class FFTCL():
             mthreads.append(th)
             th.start()
         for th in mthreads:
-            th.join()
-        return z
+            th.join()        
         
     # @profile
-    def solve_reg(self, u, lamd, rho, alpha):
+    def solve_reg(self, u, lamd, rho, alpha, res=None):
         """ Regularizer problem"""
         ##Slow version:
         # z = self.fwd_reg(u)+lamd/rho        
@@ -529,10 +534,12 @@ class FFTCL():
         # z[:, za > alpha/rho] -= alpha/rho * \
         #     z[:, za > alpha/rho]/(za[za > alpha/rho])
         ##Fast version:
-        z = self.fwd_reg(u)
-        self.linear_operation(z,lamd,1,1.0/rho,axis=1,out=z)        
-        z = self.soft_thresholding(z,alpha,rho)        
-        return z
+        if res is None:
+            res = np.zeros([3, *u.shape], dtype='float32')
+        self.fwd_reg(u,res)
+        self.linear_operation(res,lamd,1,1.0/rho,axis=1,out=res)        
+        self.soft_thresholding(res,alpha,rho)        
+        # return z
 
     def _update_penalty(self, rres, sres, psi, h, h0, rho, st, end, id):
         """Update rho for a faster convergence"""
@@ -570,10 +577,14 @@ class FFTCL():
         return rho
     
     def gradL(self,grad,u,data,theta,phi):
-        grad[:]=self.adj_lam(self.fwd_lam(u,theta, phi)-data,theta, phi)
+        t = self.fwd_lam(u,theta, phi)
+        self.linear_operation(t,data,1,-1,1,out=t)
+        self.adj_lam(t,theta, phi, grad)
             
     def gradG(self,gradG,u,g):
-        gradG[:]=self.adj_reg(self.fwd_reg(u)-g)
+        t = self.fwd_reg(u)
+        self.linear_operation(t,g,1,-1,1,out=t)
+        self.adj_reg(t,gradG)
 
     def _dai_yuan_dividend(self,res,grad,st,end,id):
         res[id] = np.sum(grad[st:end]*np.conj(grad[st:end]))
@@ -671,11 +682,12 @@ class FFTCL():
             # h0 = utils.copy(h)
             
             # laminography problem
-            u = self.cg_lam_ext(data, psi-lamd/rho, u, theta, phi, rho, titer, gamma, False)            
+            self.linear_operation(psi,lamd,1,-1/rho,axis=1,out=psi)
+            u = self.cg_lam_ext(data, psi, u, theta, phi, rho, titer, gamma, False)            
             # regularizer problem
-            psi = self.solve_reg(u, lamd, rho, alpha)
+            self.solve_reg(u, lamd, rho, alpha,psi)
             # h updates
-            h = self.fwd_reg(u)
+            self.fwd_reg(u,h)
             # lambda update
             ##Slow version:
             # lamd = lamd + rho * (h-psi)
@@ -692,7 +704,8 @@ class FFTCL():
                     u, psi, data, h, lamd,theta, phi, alpha,rho)
                 print("%d/%d) rho=%.2e, Lagrangian terms:   %.2e %.2e %.2e %.2e, Sum: %.2e" %
                         (m, niter, rho, *lagr))
-                dxchange.write_tiff(u[:,95],f'{rec_folder}/iters/t{m:03}.tiff',overwrite=True)
+            print(f'save {rec_folder}/iters/t{m:03}.tiff')
+            dxchange.write_tiff(u[:,95],f'{rec_folder}/iters/t{m:03}.tiff',overwrite=True)
         return u
 
     def take_lagr(self, u, psi, data, h, lamd, theta, phi, alpha, rho):
