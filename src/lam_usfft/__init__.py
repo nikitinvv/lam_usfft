@@ -5,6 +5,7 @@ from lam_usfft.usfft2d import *
 from lam_usfft.fft2d import *
 from lam_usfft.fftcl import *
 from lam_usfft.utils import *
+
 try:
     __version__ = get_distribution(__name__).version
 except DistributionNotFound:

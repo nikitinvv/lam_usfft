@@ -1,7 +1,7 @@
 #define PI 3.1415926535897932384626433
 
 
-// Divide by phi
+// find unequally-spaced grid
 void __global__ take_x(float *x, float *y, float* theta, float phi, int k, int deth0, int detw, int deth, int ntheta) {
   int tx = blockDim.x * blockIdx.x + threadIdx.x;
   int ty = blockDim.y * blockIdx.y + threadIdx.y;
@@ -27,15 +27,17 @@ void __global__ divker2d(float2 *g, float2 *f, int n0, int n1, int n2, int m0,
   float ker = __expf(-mu0 * (tx - n0 / 2) * (tx - n0 / 2) -
                      mu1 * (ty - n1 / 2) * (ty - n1 / 2));
   int f_ind = tx + tz * n0 + ty * n0 * n2;
-  int g_ind = tx + n0 / 2 + m0 + (ty + n1 / 2 + m1) * (2 * n0 + 2 * m0) +
+  // int g_ind = tx + n0 / 2 + m0 + (n1-ty-1 + n1 / 2 + m1) * (2 * n0 + 2 * m0) +    //n1-ty-1 instead of ty for consistency with other methods
+              // tz * (2 * n0 + 2 * m0) * (2 * n1 + 2 * m1);
+  int g_ind = tx + n0 / 2 + m0 + (ty + n1 / 2 + m1) * (2 * n0 + 2 * m0) +    //n1-ty-1 instead of ty for consistency with other methods
               tz * (2 * n0 + 2 * m0) * (2 * n1 + 2 * m1);
   
   if (direction == 0){
-    g[g_ind].x = f[f_ind].x / ker / (4 * n0 * n1);
-    g[g_ind].y = f[f_ind].y / ker / (4 * n0 * n1);
+    g[g_ind].x = f[f_ind].x / ker / (4*n0 * n1);
+    g[g_ind].y = f[f_ind].y / ker / (4*n0 * n1);
   } else {
-    f[f_ind].x = g[g_ind].x / ker / (4 * n0 * n1);
-    f[f_ind].y = g[g_ind].y / ker / (4 * n0 * n1);
+    f[f_ind].x = g[g_ind].x / ker / (4*n0 * n1);
+    f[f_ind].y = g[g_ind].y / ker / (4*n0 * n1);
   }
 }
 
@@ -82,10 +84,23 @@ void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
   if (tx >= detw || ty >= deth || tz >= ntheta)
     return;
 
-  int g_ind = tx + ty * detw + tz* detw * deth;
+  int txs = tx;
+  int tys = ty; 
+  int tzs = tz; 
+  int conj = 1;
+  if (tx>detw/2) 
+  {    
+    txs = txs - 2*(tx-detw/2);   
+    tys = deth - ty-1;
+    tzs = tz + ntheta;
+    conj = -1;
+  }
+  int g_ind = txs + tys*(detw/2+1) + tzs*(detw/2+1)*deth;
+  int xy_ind = tx + ty * detw + tz* detw * deth;
 
-  float x0 = x[g_ind];
-  float y0 = y[g_ind];
+  
+  float x0 = x[xy_ind];
+  float y0 = y[xy_ind];
 
   float2 g0;
   if (direction == 0) {
@@ -93,7 +108,7 @@ void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
     g0.y = 0.0f;
   } else {
     g0.x = g[g_ind].x;
-    g0.y = g[g_ind].y;
+    g0.y = conj*g[g_ind].y;
   }
   for (int i1 = 0; i1 < 2 * m1 + 1; i1++) {
     int ell1 = floorf(2 * n1 * y0) - m1 + i1;
@@ -110,7 +125,7 @@ void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
         g0.y += w * f[f_ind].y;
       } else {
         float *fx = &(f[f_ind].x);
-        float *fy = &(f[f_ind].y);
+        float *fy = &(f[f_ind].y);        
         atomicAdd(fx, w * g0.x);
         atomicAdd(fy, w * g0.y);
       }
@@ -118,6 +133,6 @@ void __global__ gather2d(float2 *g, float2 *f, float *x, float *y, int m0,
   }
   if (direction == 0){
     g[g_ind].x = g0.x;
-    g[g_ind].y = g0.y;
+    g[g_ind].y = conj*g0.y;
   }
 }
