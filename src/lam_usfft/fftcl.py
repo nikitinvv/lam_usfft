@@ -6,6 +6,8 @@ from lam_usfft.lam import LAM
 from lam_usfft import utils
 from lam_usfft import logging
 import dxchange
+from pathlib import Path
+import gc
 logging.setup_custom_logger('logging', level="INFO")
 log = logging.getLogger(__name__)
 
@@ -201,13 +203,15 @@ class FFTCL():
             rho *= 0.5
         return rho
     
-    def save0(self,path,data,st,end):
-        np.save(path,data[st:end])
+    def save0(self,path,data,st,end):        
+        np.save(path,data[:,st:end])
     
     def load0(self,path,data,st,end):
-        data[st:end] = np.load(path)
+        data[:,st:end] = np.load(path)
         
-    def save_parallel(self,path,data,nthreads=8):
+    def save_parallel(self,path,data,nthreads=8):        
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
         nchunk = int(np.ceil(data.shape[1]/nthreads))
         mthreads = []
         for k in range(nthreads):
@@ -235,44 +239,32 @@ class FFTCL():
         """ ADMM for laminography problem with TV regularization"""
         rho = 0.5
         for m in range(niter):
-            # keep previous iteration for penalty updates
-            # h0 = utils.copy(h)
-            
-            # laminography problem
-            log.info(f'step0, {psutil.virtual_memory()[3]/1000000000})')            
-            
+            log.info(f'step0, {psutil.virtual_memory()[3]/1000000000})')                        
             self.linear_operation(psi,lamd,1,-1/rho,axis=1,out=psi)
             self.save_parallel(f'{rec_folder}/lamd',lamd)
-            del lamd
             
-            log.info(f'step1, {psutil.virtual_memory()[3]/1000000000})')
-            
+            log.info(f'step1, {psutil.virtual_memory()[3]/1000000000})')            
+            grads = lamd # reuse memory
             with LAM(self.n0, self.n1, self.n2, self.detw, self.deth, self.ntheta, self.n1c, self.dethc, self.nthetac) as slv:    
-                slv.cg_lam_ext(data, psi, u, theta, phi, rho, titer, gamma, False)                        
+                slv.cg_lam_ext(data, psi, u, grads, theta, phi, rho, titer, gamma, False)                        
             
             log.info(f'step2, {psutil.virtual_memory()[3]/1000000000})')
             
             # regularizer problem
-            lamd = self.load_parallel(f'{rec_folder}/lamd',[3,self.n1,self.n0,self.n2])
+            self.load_parallel(f'{rec_folder}/lamd',[3,self.n1,self.n0,self.n2],lamd)
             self.solve_reg(u, lamd, rho, alpha,psi)
             self.save_parallel(f'{rec_folder}/psi',psi)
-            # del lamd
-            del psi
             
-            # h updates
             log.info(f'step3, {psutil.virtual_memory()[3]/1000000000})')
-            
-            h = lamd #reuse memory
-            # h = np.empty([3,self.n1,self.n0,self.n2],dtype='float32')
+            h = psi #reuse memory
             self.fwd_reg(u,h)
             # lambda update   
-            log.info(f'step4, {psutil.virtual_memory()[3]/1000000000})')       
-            
-            self.load_parallel(f'{rec_folder}/lamd',[3,self.n1,self.n0,self.n2],lamd)
-            psi = self.load_parallel(f'{rec_folder}/psi',[3,self.n1,self.n0,self.n2])
+            log.info(f'step4, {psutil.virtual_memory()[3]/1000000000})')                   
             self.linear_operation(lamd,h,1,rho,axis=1,out=lamd)#lamd = lamd + rho * (h-psi)            
+            
+            psi = h #reuse memory            
+            self.load_parallel(f'{rec_folder}/psi',[3,self.n1,self.n0,self.n2],psi)
             self.linear_operation(lamd,psi,1,-rho,axis=1,out=lamd)
-            # del h
             # update rho for a faster convergence
             # rho = self.update_penalty(psi, h, h0, rho)
             
