@@ -1,35 +1,46 @@
 import numpy as np
-from lam_usfft.fftcl import FFTCL
-import dxchange
+import time
+from lam_usfft import LAM
 
-n = 256
-n0 = n//2
+n = 1024 
+
+# reconstructed volume dimensions
+n0 = n
 n1 = n
 n2 = n
-detw = n
-deth = n
-ntheta = n
 
-n1c = n1
-dethc = deth//4
-nthetac = ntheta//4
+# data dimensions
+detw = n # detector width
+deth = n # detector height
+ntheta = n # number of projections
+
+# chunk dimensions (to fit gpu memory)
+n1c = n1//32
+dethc = deth//32
+nthetac = ntheta//32
+
+# lamino angle
 phi = np.pi/2-20/180*np.pi
+
+# projection angles
 theta = np.linspace(0, 2*np.pi, ntheta, endpoint=True).astype('float32')
 
-f = dxchange.read_tiff('delta-chip-256.tiff').swapaxes(0,1)#.astype('complex64')
-
-print(np.linalg.norm(f))
-with FFTCL(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
-    f = dxchange.read_tiff('delta-chip-256.tiff')[128-n0//2:128+n0//2,128-n1//2:128+n1//2,128-n2//2:128+n2//2].swapaxes(0,1)# shape [n1,n0,n2] is more optimal for computations    
+with LAM(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
+    # generate some volume
+    f = np.zeros([n1,n0,n2],dtype='float32')
+    f[n1//4:3*n1//4,n0//4:3*n0//4,n2//4:3*n2//4] = 1
+    
+    # model data (forward transform)
+    t = time.time()
     data = slv.fwd_lam(f, theta, phi)    
+    print(f'fwd_lam time {time.time()-t}s')
+    
+    # adjoint transform
+    t = time.time()
     fr = slv.adj_lam(data, theta, phi)    
-    ddata = slv.fwd_lam(fr, theta, phi)
-    print(np.sum(f*np.conj(fr)),np.sum(data*np.conj(data)))    
+    print(f'adj_lam time {time.time()-t}s')
     
-    print(np.sum(data*np.conj(ddata))/np.sum(ddata*np.conj(ddata)))    
-    print(np.sum(f*np.conj(fr))/np.sum(fr*np.conj(fr)))    
-    print('')
-    
-    dxchange.write_tiff(data, 'res/datare.tiff', overwrite=True)
-    dxchange.write_tiff(fr, 'res/fr.tiff', overwrite=True)
+    # check the operators work correctly:
+    # print(f'Checking result (can be commented for performance tests):') 
+    # print(f'{np.sum(f*np.conj(fr)):.4e}=={np.sum(data*np.conj(data)):.4e}')    
     

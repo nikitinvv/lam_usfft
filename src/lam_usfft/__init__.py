@@ -3,7 +3,6 @@ from pkg_resources import get_distribution, DistributionNotFound
 from lam_usfft.usfft1d import *
 from lam_usfft.usfft2d import *
 from lam_usfft.fft2d import *
-from lam_usfft.fftcl import *
 from lam_usfft.utils import *
 from lam_usfft.lam import *
 
