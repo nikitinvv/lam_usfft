@@ -41,6 +41,6 @@ with LAM(n0, n1, n2, detw, deth, ntheta, n1c, dethc, nthetac) as slv:
     print(f'adj_lam time {time.time()-t}s')
     
     # check the operators work correctly:
-    # print(f'Checking result (can be commented for performance tests):') 
-    # print(f'{np.sum(f*np.conj(fr)):.4e}=={np.sum(data*np.conj(data)):.4e}')    
+    print(f'Checking result (can be commented for performance tests):') 
+    print(f'{np.sum(f*np.conj(fr)):.4e}=={np.sum(data*np.conj(data)):.4e}')    
     
