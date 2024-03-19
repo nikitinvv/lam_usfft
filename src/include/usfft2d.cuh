@@ -1,5 +1,5 @@
-#ifndef fft_CUH
-#define fft_CUH
+#ifndef FFT_CUH
+#define FFT_CUH
 
 #include <cufft.h>
 

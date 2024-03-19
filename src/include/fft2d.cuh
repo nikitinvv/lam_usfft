@@ -1,15 +1,17 @@
-#ifndef fft_CUH
-#define fft_CUH
+#ifndef FFT2D_CUH
+#define FFT2D_CUH
 
 #include <cufft.h>
+#include <cufftXt.h>
 
 
 class fft2d {
   bool is_free = false;
   
-  float2 *f;
+  float *f;
   float2 *g;
-  cufftHandle plan2dchunk;
+  cufftHandle plan2dchunk_fwd;
+  cufftHandle plan2dchunk_inv;
   cudaStream_t stream;
 
   dim3 BS2d, GS2d0;

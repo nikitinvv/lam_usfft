@@ -1,5 +1,5 @@
-#ifndef fft_CUH
-#define fft_CUH
+#ifndef FFT_CUH
+#define FFT_CUH
 
 #include <cufft.h>
 
@@ -8,7 +8,7 @@ class usfft1d {
   bool is_free = false;
   
   
-  float2 *f;
+  float *f;
   float2 *g;
   
   float2 *fdee1d;

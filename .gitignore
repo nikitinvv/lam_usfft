@@ -2,7 +2,10 @@ _skbuild*
 dist*
 tests/data
 tests/rec*
+tests/res*
+tests/xrf
 src/*egg*
 .loglogin
 core
 settings.json
+*.pyc
