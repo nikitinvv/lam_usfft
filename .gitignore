@@ -1,8 +1,11 @@
 _skbuild*
 dist*
+build*
 tests/data
 tests/rec*
 src/*egg*
 .loglogin
 core
 settings.json
+*.pyc
+__pycache__/

@@ -1,0 +1,320 @@
+"""GPU chunked execution helper, ported from holotomocupy_mpi/chunking.py.
+
+A `Chunking` instance owns a pre-allocated GPU memory pool and three CUDA
+streams.  The `gpu_batch` decorator pipelines H2D / compute / D2H across chunks
+of the outermost (or specified) axis of proper inputs/outputs.  Helper methods
+`linear_batch`, `redot_batch`, `linear_redot_batch`, `mulc_batch` expose common
+elementwise operations on numpy or cupy arrays.
+
+The only changes vs the holotomocupy original:
+- self-contained `redot` and no-op `timer` (we don't want a logger / dep on .utils).
+- `linear_batch` accepts an `axis` parameter (future-proofing).
+"""
+
+import cupy as cp
+import numpy as np
+
+
+# --- local versions of utils.redot + utils.timer so this module is standalone ---
+
+def redot(a, b):
+    """Real-part inner product <a, b>_R = sum(re(a)*re(b) + im(a)*im(b))."""
+    return cp.vdot(a.view("float32"), b.view("float32"))
+
+
+def timer(func):
+    """No-op timing decorator (holotomocupy's version logs perf; we don't here)."""
+    return func
+
+
+class Chunking:
+    def __init__(self, nbytes, chunk):
+        self.gpu_mem = cp.cuda.alloc(nbytes)
+        self.stream  = [cp.cuda.Stream(non_blocking=True) for _ in range(3)]
+        self.chunk   = chunk
+
+    def gpu_batch(self, axis_out=0, axis_inp=0, nout=1, inp_pad=0):
+        """
+        Single-GPU chunked processing of functions with syntax
+        f(out1_proper, ..., out1_nonproper, ...,
+          inp1_proper, ..., inp1_nonproper, ..., inp1, inp2, ...)
+
+        where
+        out*_proper  are numpy or cupy arrays whose shape[axis_out] equals the
+                     chunking dimension size. Numpy arrays are transferred D2H
+                     per chunk; CuPy arrays are written in-place on the GPU.
+        inp*_proper  are numpy or cupy arrays whose shape[axis_inp] equals the
+                     chunking dimension size. Numpy arrays are transferred H2D
+                     per chunk; CuPy arrays are sliced directly on the GPU.
+        out*_nonproper are CuPy arrays of non-chunking shape (filled in-place,
+                     no CPU transfer).
+        inp*_nonproper are numpy/CuPy arrays of non-chunking shape (replicated
+                     to the GPU once).
+
+        inp_pad > 0: the FIRST argument after the nout outputs is a "padded"
+                     proper input whose shape[axis_inp] == size + inp_pad.
+                     Each chunk transfers (chunk + inp_pad) rows so the kernel
+                     receives the full padded window and can slice freely.
+                     size is derived as inp[0].shape[axis_inp] - inp_pad.
+        """
+
+        def decorator(func):
+            def inner(*args):
+                # if no numpy arrays present, run the function directly on GPU
+                if not any(isinstance(a, np.ndarray) for a in args):
+                    func(*args)
+                    return
+
+                cl  = args[0]
+                out = args[1 : 1 + nout]
+                inp = args[1 + nout :]
+
+                # size: actual chunking length (without padding)
+                size = inp[0].shape[axis_inp] - inp_pad
+
+                proper_inp,   nonproper_inp   = 0, 0
+                proper_out,   nonproper_out   = 0, 0
+
+                for k in range(len(out)):
+                    if ((isinstance(out[k], np.ndarray) or isinstance(out[k], cp.ndarray))
+                            and len(out[k].shape) > axis_out + 1
+                            and out[k].shape[axis_out] == size):
+                        proper_out += 1
+                    elif isinstance(out[k], cp.ndarray):
+                        nonproper_out += 1
+
+                # inp[0] when inp_pad > 0: always the padded proper input
+                padded_first = 1 if inp_pad > 0 else 0
+                proper_inp   = padded_first
+                for k in range(padded_first, len(inp)):
+                    if ((isinstance(inp[k], np.ndarray) or isinstance(inp[k], cp.ndarray))
+                            and len(inp[k].shape) > axis_inp + 1
+                            and inp[k].shape[axis_inp] == size):
+                        proper_inp += 1
+                    elif isinstance(inp[k], np.ndarray) or isinstance(inp[k], cp.ndarray):
+                        nonproper_inp += 1
+
+                # build argument lists for the single GPU
+                ginp = [x for x in inp[:proper_inp]]
+                ginp.extend(inp[proper_inp:])
+
+                gout = [x for x in out[:proper_out]]
+                gout.extend(out[proper_out:])
+
+                if np.prod(gout[0].shape) == 0:
+                    return
+
+                self.run(cl, gout, ginp,
+                         proper_inp, nonproper_inp,
+                         proper_out, nonproper_out,
+                         axis_out, axis_inp, func, inp_pad)
+
+            return inner
+
+        return decorator
+
+    def run(self, cl, out, inp, proper_inp, nonproper_inp, proper_out, nonproper_out, axis_out, axis_inp, func, inp_pad=0):
+        """Run by chunks with overlapped H2D / compute / D2H on three streams."""
+
+        gpu_mem = self.gpu_mem
+        stream  = self.stream
+
+        size   = inp[0].shape[axis_inp] - inp_pad
+        nchunk = int(np.ceil(size / self.chunk))
+
+        # pre-allocate double-buffered GPU arrays
+        out_gpu, offset = self.alloc_double_buffers(out[:proper_out], axis_out, gpu_mem, 0, self.chunk)
+
+        if inp_pad > 0 and proper_inp > 0:
+            # First proper input is padded: allocate chunk + inp_pad rows for it
+            inp_gpu_pad,  offset = self.alloc_double_buffers(inp[:1],              axis_inp, gpu_mem, offset, self.chunk + inp_pad)
+            inp_gpu_rest, offset = self.alloc_double_buffers(inp[1:proper_inp],    axis_inp, gpu_mem, offset, self.chunk)
+            inp_gpu = [[inp_gpu_pad[j][0]] + inp_gpu_rest[j] for j in (0, 1)]
+        else:
+            inp_gpu, offset = self.alloc_double_buffers(inp[:proper_inp], axis_inp, gpu_mem, offset, self.chunk)
+
+        # move non-proper numpy inputs to GPU once
+        for k in range(proper_inp, proper_inp + nonproper_inp):
+            inp[k] = cp.asarray(inp[k])
+
+        def p2g(buf_id, k):
+            st  = k * self.chunk
+            end = min(size, (k + 1) * self.chunk)
+            cur_stream = cp.cuda.get_current_stream()
+            for j in range(proper_inp):
+                extra = inp_pad if (j == 0 and inp_pad > 0) else 0
+                ndim = inp[j].ndim
+                src = self.mk_slices(axis_inp, slice(st, end + extra), ndim)
+                dst = self.mk_slices(axis_inp, slice(0, end - st + extra), ndim)
+                if axis_inp == 1:
+                    c_src = inp[j][src]
+                    c_dst = inp_gpu[buf_id][j][dst]
+                    if isinstance(inp[j], cp.ndarray):
+                        cp.copyto(c_dst, c_src)
+                    else:
+                        rows      = c_src.shape[0]
+                        row_bytes = c_src[0].nbytes
+                        cp.cuda.runtime.memcpy2DAsync(
+                            c_dst.data.ptr,    c_dst.strides[0],
+                            c_src.ctypes.data, c_src.strides[0],
+                            row_bytes, rows,
+                            cp.cuda.runtime.memcpyHostToDevice,
+                            cur_stream.ptr,
+                        )
+                else:
+                    if isinstance(inp[j], cp.ndarray):
+                        cp.copyto(inp_gpu[buf_id][j][dst], inp[j][src])
+                    else:
+                        inp_gpu[buf_id][j][dst].set(inp[j][src])
+
+        def g2p(buf_id, k):
+            st  = k * self.chunk
+            end = min(size, (k + 1) * self.chunk)
+            cur_stream = cp.cuda.get_current_stream()
+            for j in range(proper_out):
+                ndim = out[j].ndim
+                src = self.mk_slices(axis_out, slice(0, end - st), ndim)
+                dst = self.mk_slices(axis_out, slice(st, end), ndim)
+                if axis_out == 1:
+                    c_src = out_gpu[buf_id][j][src]
+                    c_dst = out[j][dst]
+                    if isinstance(out[j], cp.ndarray):
+                        cp.copyto(c_dst, c_src)
+                    else:
+                        rows      = c_src.shape[0]
+                        row_bytes = c_src[0].nbytes
+                        cp.cuda.runtime.memcpy2DAsync(
+                            c_dst.ctypes.data, c_dst.strides[0],
+                            c_src.data.ptr,    c_src.strides[0],
+                            row_bytes, rows,
+                            cp.cuda.runtime.memcpyDeviceToHost,
+                            cur_stream.ptr,
+                        )
+                else:
+                    if isinstance(out[j], cp.ndarray):
+                        cp.copyto(out[j][dst], out_gpu[buf_id][j][src])
+                    else:
+                        out_gpu[buf_id][j][src].get(out=out[j][dst], blocking=False)
+
+        def p(buf_id, k):
+            st  = k * self.chunk
+            end = min(size, (k + 1) * self.chunk)
+            n   = end - st
+            # Slice each proper input; padded input (j==0) gets n+inp_pad rows
+            inp_gpu_c = []
+            for j in range(proper_inp):
+                extra = inp_pad if (j == 0 and inp_pad > 0) else 0
+                slc = self.mk_slices(axis_inp, slice(0, n + extra), inp_gpu[buf_id][j].ndim)
+                inp_gpu_c.append(inp_gpu[buf_id][j][slc])
+            out_gpu_c = self.slice_bufs(out_gpu[buf_id], axis_out, n)
+            func(
+                cl,
+                *out_gpu_c,
+                *out[proper_out:],
+                *inp_gpu_c,
+                *inp[proper_inp : proper_inp + nonproper_inp],
+                *inp[proper_inp + nonproper_inp :],
+            )
+
+        for k in range(nchunk + 2):
+            if k < nchunk:
+                with stream[k % 3]:
+                    p2g(k % 2, k)
+            if 0 < k < nchunk + 1:
+                with stream[(k - 1) % 3]:
+                    p((k - 1) % 2, k - 1)
+            if 1 < k:
+                with stream[(k - 2) % 3]:
+                    g2p((k - 2) % 2, k - 2)
+            for s in stream:
+                s.synchronize()
+
+    def alloc_double_buffers(self, arrs, axis, gpu_mem, offset, chunk):
+        """Allocate double-buffered GPU arrays from the pre-allocated pool."""
+        gpu = [[], []]
+        for j in (0, 1):
+            for a in arrs:
+                shape0 = list(a.shape)
+                shape0[axis] = chunk
+                shape0 = tuple(shape0)
+                n       = int(np.prod(shape0))
+                nbytes  = n * np.dtype(a.dtype).itemsize
+                try:
+                    gpu[j].append(cp.ndarray(shape0, dtype=a.dtype, memptr=gpu_mem + offset))
+                except Exception as e:
+                    raise RuntimeError("Failed to allocate GPU buffers") from e
+                offset += nbytes
+        return gpu, offset
+
+    # --------------------- Slicing helpers ---------------------
+    def slice_bufs(self, bufs, axis, n):
+        result = []
+        for b in bufs:
+            slc = [slice(None)] * b.ndim
+            slc[axis] = slice(0, n)
+            result.append(b[tuple(slc)])
+        return result
+
+    def mk_slices(self, axis, sl, ndim=3):
+        res = [slice(None)] * ndim
+        res[axis] = sl
+        return tuple(res)
+
+    # --------------------- Simple batched ops ---------------------
+    @timer
+    def redot_batch(self, x, y, nout=1):
+        """res = Re<x, y>"""
+        if isinstance(x, cp.ndarray):
+            return redot(x, y).get()
+        res = cp.zeros(1, dtype="float32")
+
+        @self.gpu_batch(axis_out=0, axis_inp=0)
+        def _redot(self, res, x, y):
+            res[:] += redot(x, y)
+
+        _redot(self, res, x, y)
+        return res[0].get()
+
+    @timer
+    def linear_batch(self, x, y, a, b, out=None, axis=0):
+        """w = ax + by  (in-place when out is None: x ← ax+by)."""
+        if out is None:
+            out = x
+        if isinstance(x, cp.ndarray):
+            out[:] = a * x + b * y
+            return
+
+        @self.gpu_batch(axis_out=axis, axis_inp=axis, nout=1)
+        def _linear(self, out, x, y, a, b):
+            out[:] = a * x + b * y
+
+        _linear(self, out, x, y, a, b)
+
+    @timer
+    def linear_redot_batch(self, x, y, a, b):
+        """In-place x := ax + by, returns Re<y, x_new> in a single sweep."""
+        if isinstance(x, cp.ndarray):
+            x[:] = a * x + b * y
+            return redot(y, x).get()
+        res = cp.zeros(1, dtype="float32")
+
+        @self.gpu_batch(axis_out=0, axis_inp=0, nout=2)
+        def _linear_redot(self, out, res, x, y, a, b):
+            out[:] = a * x + b * y
+            res[:] += redot(y, out)
+
+        _linear_redot(self, x, res, x, y, a, b)
+        return res[0].get()
+
+    @timer
+    def mulc_batch(self, out, x, a):
+        """out = ax"""
+        if isinstance(x, cp.ndarray):
+            out[:] = a * x
+            return
+
+        @self.gpu_batch(axis_out=0, axis_inp=0, nout=1)
+        def _mulc(self, out, x, a):
+            out[:] = a * x
+
+        _mulc(self, out, x, a)
