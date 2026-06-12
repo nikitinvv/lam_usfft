@@ -134,8 +134,7 @@ $$
 
 The resulting *missing cone* along the rotation axis (half-angle `φ`) is the source of
 "tail" streaks under high-contrast features — exactly the artefacts TV regularization
-suppresses. See [`fourier_slice_laminography.tex`](fourier_slice_laminography.tex) for the
-formula derivation.
+suppresses. 
 
 ## References
 
