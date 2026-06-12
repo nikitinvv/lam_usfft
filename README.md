@@ -5,7 +5,7 @@ GPU-accelerated iterative reconstruction for parallel-beam X-ray laminography.
 Solves
 
 $$
-\min_u \tfrac{1}{2}\lVert L u - d \rVert^2 + \tfrac{\lambda}{N} \sum_i \sqrt{\lvert \nabla u \rvert_2^2 + \varepsilon^2}
+\min_u \tfrac{1}{2}\lVert L u - d \rVert^2 + \tfrac{\lambda}{N} \sum_i \sqrt{\lvert \nabla u \rvert_i^2 + \varepsilon^2}
 $$
 
 with bilinear-Hessian conjugate gradient (BH-CG) and Charbonnier-smoothed total variation.
